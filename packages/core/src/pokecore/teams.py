@@ -1,0 +1,394 @@
+"""Showdown paste parser.
+
+Parses Pokémon Showdown team-paste format into structured :class:`Team` objects.
+Reverse serialization is also supported for storage round-trips.
+
+Type resolution is pluggable: pass a ``type_resolver`` callable that maps
+``species_id`` (lowercased, no spaces) to a :class:`TypePair`. When no resolver
+is supplied, all Pokémon default to :class:`Type.NORMAL` — type information is
+filled in by a later pipeline that consumes Smogon's ``pokedex.json``.
+
+Re-exported from :mod:`pokecore`.
+"""
+
+from __future__ import annotations
+
+import re
+from collections import Counter
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass
+from types import MappingProxyType
+from typing import TypeVar
+
+from pokecore.types import Nature, NatureModifier, Stat, Type, TypePair
+
+T = TypeVar("T")
+
+STAT_ALIASES: MappingProxyType[str, Stat] = MappingProxyType(
+    {
+        "hp": Stat.HP,
+        "atk": Stat.ATTACK,
+        "atks": Stat.ATTACK,
+        "attack": Stat.ATTACK,
+        "def": Stat.DEFENSE,
+        "defense": Stat.DEFENSE,
+        "spa": Stat.SPECIAL_ATTACK,
+        "spatk": Stat.SPECIAL_ATTACK,
+        "spattack": Stat.SPECIAL_ATTACK,
+        "specialattack": Stat.SPECIAL_ATTACK,
+        "spc": Stat.SPECIAL_ATTACK,
+        "spd": Stat.SPECIAL_DEFENSE,
+        "spdef": Stat.SPECIAL_DEFENSE,
+        "spdefense": Stat.SPECIAL_DEFENSE,
+        "specialdefense": Stat.SPECIAL_DEFENSE,
+        "spe": Stat.SPEED,
+        "speed": Stat.SPEED,
+    }
+)
+
+NATURE_ALIASES: MappingProxyType[str, Nature] = MappingProxyType({n.value: n for n in Nature})
+
+TYPE_ALIASES: MappingProxyType[str, Type] = MappingProxyType({t.value: t for t in Type})
+
+ALL_STATS: tuple[Stat, ...] = (
+    Stat.HP,
+    Stat.ATTACK,
+    Stat.DEFENSE,
+    Stat.SPECIAL_ATTACK,
+    Stat.SPECIAL_DEFENSE,
+    Stat.SPEED,
+)
+
+TypeResolver = Callable[[str], TypePair]
+
+
+@dataclass(frozen=True, slots=True)
+class EVSpread:
+    """Effort values, 0..252 per stat, total <= 510."""
+
+    values: MappingProxyType[Stat, int]
+    total: int
+
+    @classmethod
+    def zero(cls) -> EVSpread:
+        return cls(MappingProxyType(dict.fromkeys(ALL_STATS, 0)), 0)
+
+    @classmethod
+    def parse(cls, raw: str) -> EVSpread:
+        cleaned = raw.strip()
+        if not cleaned:
+            return cls.zero()
+        pairs = _split_pairs(cleaned)
+        values: dict[Stat, int] = dict.fromkeys(ALL_STATS, 0)
+        for stat_token, value_token in pairs:
+            stat = _lookup(STAT_ALIASES, stat_token)
+            if stat is None:
+                raise ValueError(f"Unknown stat in EV spread: {stat_token!r}")
+            value = int(value_token)
+            if not 0 <= value <= 252:
+                raise ValueError(f"EV value {value} out of range [0, 252]")
+            if value % 4 != 0:
+                raise ValueError(f"EV value {value} must be divisible by 4")
+            values[stat] = value
+        total = sum(values.values())
+        if total > 510:
+            raise ValueError(f"EV total {total} exceeds 510")
+        return cls(MappingProxyType(values), total)
+
+
+@dataclass(frozen=True, slots=True)
+class IVSpread:
+    """Individual values, 0..31 per stat (default 31)."""
+
+    values: MappingProxyType[Stat, int]
+
+    @classmethod
+    def default(cls) -> IVSpread:
+        return cls(MappingProxyType(dict.fromkeys(ALL_STATS, 31)))
+
+    @classmethod
+    def parse(cls, raw: str) -> IVSpread:
+        cleaned = raw.strip()
+        if not cleaned:
+            return cls.default()
+        pairs = _split_pairs(cleaned)
+        values: dict[Stat, int] = dict.fromkeys(ALL_STATS, 31)
+        for stat_token, value_token in pairs:
+            stat = _lookup(STAT_ALIASES, stat_token)
+            if stat is None:
+                raise ValueError(f"Unknown stat in IV spread: {stat_token!r}")
+            value = int(value_token)
+            if not 0 <= value <= 31:
+                raise ValueError(f"IV value {value} out of range [0, 31]")
+            values[stat] = value
+        return cls(MappingProxyType(values))
+
+
+@dataclass(frozen=True, slots=True)
+class MoveSlot:
+    name: str
+    pp: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PokemonSet:
+    nickname: str | None
+    species: str
+    species_id: str
+    types: TypePair
+    item: str | None
+    ability: str
+    level: int
+    shiny: bool
+    happiness: int | None
+    nature: Nature
+    nature_modifier: NatureModifier
+    tera_type: Type | None
+    evs: EVSpread
+    ivs: IVSpread
+    moves: tuple[MoveSlot, ...]
+
+    def __post_init__(self) -> None:
+        if not 1 <= self.level <= 100:
+            raise ValueError(f"Level {self.level} out of range [1, 100]")
+        if not 0 <= len(self.moves) <= 4:
+            raise ValueError(f"Move count {len(self.moves)} out of range [0, 4]")
+
+
+@dataclass(frozen=True, slots=True)
+class Team:
+    name: str | None
+    pokemon: tuple[PokemonSet, ...]
+    format: str | None
+
+    def __post_init__(self) -> None:
+        if not 1 <= len(self.pokemon) <= 6:
+            raise ValueError(f"Team size {len(self.pokemon)} out of range [1, 6]")
+        duplicates = [
+            sid for sid, count in Counter(p.species_id for p in self.pokemon).items() if count > 1
+        ]
+        if duplicates:
+            raise ValueError(f"Duplicate species in team: {duplicates}")
+
+    def species_ids(self) -> Iterable[str]:
+        return (p.species_id for p in self.pokemon)
+
+
+_TRAILING_PAIR = re.compile(r"(\d+)\s+([A-Za-z][A-Za-z ]*?)\s*$")
+_NATURE_TRAILING = re.compile(r"\b([A-Za-z]+)\s+Nature\s*$")
+_NATURE_LEADING = re.compile(r"^([A-Za-z]+)\s+Nature\s*$")
+_TERA_PATTERN = re.compile(r"^Tera Type:\s*(.+)$", re.IGNORECASE)
+
+
+def _lookup(mapping: MappingProxyType[str, T], key: str) -> T | None:
+    normalized = key.strip().lower()
+    return mapping.get(normalized) or mapping.get(normalized.replace(" ", ""))
+
+
+def _split_pairs(raw: str) -> list[tuple[str, str]]:
+    text = raw.strip()
+    pairs: list[tuple[str, str]] = []
+    for chunk in text.split("/"):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        m = _TRAILING_PAIR.search(chunk)
+        if not m:
+            raise ValueError(f"Could not parse stat pair: {chunk!r}")
+        value = m.group(1)
+        stat = m.group(2).strip()
+        pairs.append((stat, value))
+    return pairs
+
+
+def _normalize_species_id(species: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", species.lower())
+
+
+def _parse_header(line: str) -> tuple[str | None, str, str | None]:
+    text = line.strip()
+    item: str | None = None
+    if "@" in text:
+        text, item_part = text.rsplit("@", 1)
+        item = item_part.strip()
+        text = text.strip()
+    nickname: str | None = None
+    species = text
+    paren = re.search(r"\(([^)]+)\)\s*$", text)
+    if paren:
+        inner = paren.group(1).strip()
+        head = text[: paren.start()].strip()
+        if _normalize_species_id(inner) != _normalize_species_id(head):
+            nickname = head
+            species = inner
+    return nickname, species, item
+
+
+def _parse_pokemon_block(
+    block: Sequence[str],
+    type_resolver: TypeResolver | None = None,
+) -> PokemonSet:
+    if not block:
+        raise ValueError("Empty Pokémon block")
+    nickname, species, item = _parse_header(block[0])
+    species_id = _normalize_species_id(species)
+    ability: str | None = None
+    level = 100
+    shiny = False
+    happiness: int | None = None
+    nature: Nature | None = None
+    tera_type: Type | None = None
+    evs = EVSpread.zero()
+    ivs = IVSpread.default()
+    moves: list[MoveSlot] = []
+
+    for raw in block[1:]:
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith("Ability:"):
+            ability = line[len("Ability:") :].strip()
+            continue
+        if line.startswith("Level:"):
+            level = int(line[len("Level:") :].strip())
+            continue
+        if line.startswith("Shiny:"):
+            shiny = line[len("Shiny:") :].strip().lower() in {"yes", "true", "y"}
+            continue
+        if line.startswith("Happiness:"):
+            happiness = int(line[len("Happiness:") :].strip())
+            continue
+        if line.startswith("EVs:"):
+            evs = EVSpread.parse(line[len("EVs:") :].strip())
+            continue
+        if line.startswith("IVs:"):
+            ivs = IVSpread.parse(line[len("IVs:") :].strip())
+            continue
+        tera_match = _TERA_PATTERN.match(line)
+        if tera_match:
+            tera_name = tera_match.group(1).strip()
+            tera_type = _lookup(TYPE_ALIASES, tera_name)
+            if tera_type is None:
+                raise ValueError(f"Unknown tera type: {tera_name!r}")
+            continue
+        if line.startswith("-"):
+            move_text = line.lstrip("-").strip()
+            pp: int | None = None
+            if "/" in move_text:
+                name_part, pp_part = move_text.split("/", 1)
+                try:
+                    pp = int(pp_part.strip())
+                    move_text = name_part.strip()
+                except ValueError:
+                    pass
+            moves.append(MoveSlot(name=move_text, pp=pp))
+            continue
+        nat_match = _NATURE_TRAILING.search(line)
+        if nat_match:
+            nature = _parse_nature_token(nat_match.group(1))
+            continue
+        nat_lead = _NATURE_LEADING.match(line)
+        if nat_lead:
+            nature = _parse_nature_token(nat_lead.group(1))
+            continue
+
+    if ability is None:
+        raise ValueError(f"Pokémon {species!r} is missing Ability")
+    if nature is None:
+        raise ValueError(f"Pokémon {species!r} is missing Nature")
+    types = type_resolver(species_id) if type_resolver is not None else TypePair(Type.NORMAL)
+    return PokemonSet(
+        nickname=nickname,
+        species=species,
+        species_id=species_id,
+        types=types,
+        item=item,
+        ability=ability,
+        level=level,
+        shiny=shiny,
+        happiness=happiness,
+        nature=nature,
+        nature_modifier=NatureModifier.from_nature(nature),
+        tera_type=tera_type,
+        evs=evs,
+        ivs=ivs,
+        moves=tuple(moves),
+    )
+
+
+def _parse_nature_token(token: str) -> Nature:
+    nature = _lookup(NATURE_ALIASES, token)
+    if nature is None:
+        raise ValueError(f"Unknown nature: {token!r}")
+    return nature
+
+
+def parse_team(
+    paste: str,
+    *,
+    type_resolver: TypeResolver | None = None,
+    name: str | None = None,
+    format: str | None = None,
+) -> Team:
+    """Parse a full Showdown team paste."""
+    blocks: list[list[str]] = []
+    current: list[str] = []
+    for raw in paste.splitlines():
+        line = raw.rstrip()
+        stripped = line.strip()
+        if not stripped:
+            if current:
+                blocks.append(current)
+                current = []
+            continue
+        if stripped.startswith("===") and stripped.endswith("==="):
+            continue
+        if stripped.startswith("//"):
+            continue
+        current.append(line)
+    if current:
+        blocks.append(current)
+    if not blocks:
+        raise ValueError("Empty team paste")
+    parsed = [_parse_pokemon_block(b, type_resolver) for b in blocks]
+    return Team(name=name, pokemon=tuple(parsed), format=format)
+
+
+def format_team(team: Team) -> str:
+    """Serialize a team back to Showdown paste format."""
+    out: list[str] = []
+    if team.name:
+        out.append(f"=== {team.name} ===")
+    for pkmn in team.pokemon:
+        header = pkmn.species
+        if pkmn.nickname and pkmn.nickname != pkmn.species:
+            header = f"{pkmn.nickname} ({pkmn.species})"
+        if pkmn.item:
+            header += f" @ {pkmn.item}"
+        out.append(header)
+        if pkmn.ability:
+            out.append(f"Ability: {pkmn.ability}")
+        if pkmn.level != 100:
+            out.append(f"Level: {pkmn.level}")
+        if pkmn.shiny:
+            out.append("Shiny: Yes")
+        if pkmn.happiness is not None:
+            out.append(f"Happiness: {pkmn.happiness}")
+        if pkmn.tera_type is not None:
+            out.append(f"Tera Type: {pkmn.tera_type.value}")
+        ev_parts = [
+            f"{pkmn.evs.values[s]} {s.value.upper()}" for s in ALL_STATS if pkmn.evs.values[s] > 0
+        ]
+        if ev_parts:
+            out.append("EVs: " + " / ".join(ev_parts))
+        iv_parts = [
+            f"{pkmn.ivs.values[s]} {s.value.upper()}" for s in ALL_STATS if pkmn.ivs.values[s] != 31
+        ]
+        if iv_parts:
+            out.append("IVs: " + " / ".join(iv_parts))
+        out.append(f"{pkmn.nature.value.capitalize()} Nature")
+        for move in pkmn.moves:
+            suffix = f" /{move.pp}" if move.pp is not None else ""
+            out.append(f"- {move.name}{suffix}")
+        out.append("")
+    return "\n".join(out).rstrip() + "\n"

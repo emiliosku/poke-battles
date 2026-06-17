@@ -1,0 +1,78 @@
+# poke-battles production stack (OCI ARM free tier friendly)
+# Usage:  docker compose -f deploy/docker-compose.yml up -d
+# Or:     podman-compose -f deploy/docker-compose.yml up -d
+
+name: poke-battles
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: packages/api/Dockerfile
+    image: poke-battles/api:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://poke:poke@db:5432/poke
+      LOG_LEVEL: INFO
+      MAX_CONCURRENT_SHOWDOWN: "2"
+      SHOWDOWN_SERVER_DIR: /opt/showdown
+    volumes:
+      - showdown-data:/opt/showdown
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  web:
+    build:
+      context: ..
+      dockerfile: web/Dockerfile
+    image: poke-battles/web:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:80"
+    environment:
+      API_BASE: http://api:8000
+    depends_on:
+      - api
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: poke
+      POSTGRES_PASSWORD: poke
+      POSTGRES_DB: poke
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U poke -d poke"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  showdown-pool:
+    image: poke-battles/showdown:latest
+    build:
+      context: ..
+      dockerfile: showdown/Dockerfile
+    restart: unless-stopped
+    expose:
+      - "8000"
+    volumes:
+      - showdown-data:/opt/showdown
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  pgdata:
+  showdown-data:

@@ -1,0 +1,63 @@
+"""WebSocket route for live battle event streaming."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+from collections import defaultdict
+
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(tags=["ws"])
+
+
+class ConnectionManager:
+    def __init__(self) -> None:
+        self._connections: dict[str, set[WebSocket]] = defaultdict(set)
+        self._lock = asyncio.Lock()
+
+    async def connect(self, battle_id: str, ws: WebSocket) -> None:
+        await ws.accept()
+        async with self._lock:
+            self._connections[battle_id].add(ws)
+
+    async def disconnect(self, battle_id: str, ws: WebSocket) -> None:
+        async with self._lock:
+            self._connections[battle_id].discard(ws)
+            if not self._connections[battle_id]:
+                del self._connections[battle_id]
+
+    async def broadcast(self, battle_id: str, event: dict[str, object]) -> None:
+        async with self._lock:
+            sockets = list(self._connections.get(battle_id, ()))
+        if not sockets:
+            return
+        payload = json.dumps(event)
+        for ws in sockets:
+            try:
+                await ws.send_text(payload)
+            except Exception:
+                logger.exception("WS send failed; dropping client")
+
+
+manager = ConnectionManager()
+
+
+@router.websocket("/ws/battles/{battle_id}")
+async def battle_ws(websocket: WebSocket, battle_id: str) -> None:
+    await manager.connect(battle_id, websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            if data == "ping":
+                await websocket.send_text("pong")
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await manager.disconnect(battle_id, websocket)
+
+
+__all__ = ["ConnectionManager", "manager"]

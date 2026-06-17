@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pokellm"
+version = "0.1.0"
+description = "LLM agent: prompts, tools, memory, multi-provider clients"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "poke-battles" }]
+keywords = ["pokemon", "showdown", "llm", "litellm", "agent"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Games/Entertainment",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
+
+dependencies = [
+    "pokecore>=0.1.0",
+    "pokeengine>=0.1.0",
+    "litellm>=1.50.0",
+    "langfuse>=2.0.0",
+    "json-repair>=0.30.0",
+    "tenacity>=8.2.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "pytest-asyncio>=0.23",
+    "mypy>=1.10",
+    "ruff>=0.5",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pokellm"]
+include = ["src/pokellm/prompts/*.j2"]
