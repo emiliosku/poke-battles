@@ -2,8 +2,7 @@ FROM python:3.12-slim AS base
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
-    UV_LINK_MODE=copy
+    PIP_NO_CACHE_DIR=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates \
@@ -11,16 +10,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN useradd -m -u 1000 poke && mkdir /app && chown poke:poke /app
 WORKDIR /app
+
+COPY pyproject.toml uv.lock ./
+COPY packages ./packages
+
+RUN pip install uv && \
+    uv pip install --system \
+        -e ./packages/core \
+        -e ./packages/engine \
+        -e ./packages/llm \
+        -e ./packages/api \
+        "psycopg2-binary>=2.9.0"
+
+RUN chown -R poke:poke /app
+
 USER poke
 
-COPY --chown=poke:poke pyproject.toml uv.lock ./
-COPY --chown=poke:poke packages ./packages
-
-RUN pip install --user uv && \
-    ~/.local/bin/uv sync --frozen --no-dev && \
-    ~/.local/bin/uv pip install --system "asyncpg>=0.29.0"
-
-ENV PATH="/home/poke/.local/bin:${PATH}"
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

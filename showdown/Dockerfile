@@ -12,8 +12,8 @@ RUN apk add --no-cache git python3 make g++ \
 FROM node:20-alpine
 
 RUN apk add --no-cache tini curl \
-    && addgroup -S showdown -g 1000 \
-    && adduser -S showdown -u 1000 -G showdown
+    && addgroup -S showdown \
+    && adduser -S showdown -G showdown
 
 WORKDIR /opt/showdown
 COPY --from=builder --chown=showdown:showdown /build /opt/showdown
