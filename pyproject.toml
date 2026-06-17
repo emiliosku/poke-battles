@@ -4,6 +4,13 @@ version = "0.1.0"
 description = "LLM-powered Pokémon Showdown agents, cloud-hosted"
 readme = "README.md"
 requires-python = ">=3.12"
+dependencies = [
+    "pokecore",
+    "pokeengine",
+    "pokellm",
+    "pokeapi",
+    "pokecli",
+]
 
 [tool.uv]
 managed = true
@@ -12,6 +19,7 @@ managed = true
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
+    "pytest-asyncio>=0.23",
     "mypy>=1.10",
     "ruff>=0.5",
 ]
@@ -98,6 +106,10 @@ enable_error_code = ["redundant-expr", "truthy-bool"]
 [[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+module = "poke_env.*"
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 minversion = "8.0"
