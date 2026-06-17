@@ -1,0 +1,20 @@
+# Auto-detect text files
+* text=auto
+
+# Python
+*.py          text eol=lf
+*.pyi         text eol=lf
+
+# Configs
+*.toml        text eol=lf
+*.yaml        text eol=lf
+*.yml         text eol=lf
+*.json        text eol=lf
+*.md          text eol=lf
+Makefile      text eol=lf
+Dockerfile    text eol=lf
+*.sh          text eol=lf text eol=lf
+
+# Generated
+uv.lock       text eol=lf
+coverage.xml  text eol=lf
