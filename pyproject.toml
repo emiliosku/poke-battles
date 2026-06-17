@@ -8,6 +8,14 @@ requires-python = ">=3.12"
 [tool.uv]
 managed = true
 
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "mypy>=1.10",
+    "ruff>=0.5",
+]
+
 [tool.uv.workspace]
 members = ["packages/*", "pokecli"]
 
