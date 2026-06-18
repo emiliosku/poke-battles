@@ -3,6 +3,7 @@ import { useAuth } from "./auth";
 import Battle from "./pages/Battle";
 import Dashboard from "./pages/Dashboard";
 import Leaderboard from "./pages/Leaderboard";
+import Practice from "./pages/Practice";
 import Replays from "./pages/Replays";
 import SignIn from "./pages/SignIn";
 import Simulations from "./pages/Simulations";
@@ -20,6 +21,7 @@ function Nav() {
         <NavLink to="/">Dashboard</NavLink>
         <NavLink to="/teams">Teams</NavLink>
         <NavLink to="/battle">Battle</NavLink>
+        <NavLink to="/practice">Practice</NavLink>
         <NavLink to="/simulations">Simulations</NavLink>
         <NavLink to="/leaderboard">Leaderboard</NavLink>
         <NavLink to="/replays">Replays</NavLink>
@@ -64,6 +66,8 @@ export default function App() {
         <Route path="/teams" element={<Teams />} />
         <Route path="/battle" element={<Battle />} />
         <Route path="/battle/:id" element={<Battle />} />
+        <Route path="/practice" element={<Practice />} />
+        <Route path="/practice/:id" element={<Practice />} />
         <Route path="/simulations" element={<Simulations />} />
         <Route path="/leaderboard" element={<Leaderboard />} />
         <Route path="/replays" element={<Replays />} />
