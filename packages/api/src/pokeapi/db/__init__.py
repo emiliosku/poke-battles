@@ -48,6 +48,10 @@ def _ensure_postgres_columns(engine: Engine) -> None:
         statements.append("ALTER TABLE battles ADD COLUMN owner_id VARCHAR(64)")
     if "owner_id" not in table_columns.get("simulations", set()):
         statements.append("ALTER TABLE simulations ADD COLUMN owner_id VARCHAR(64)")
+    if "format" not in table_columns.get("simulations", set()):
+        statements.append(
+            "ALTER TABLE simulations ADD COLUMN format VARCHAR(64) DEFAULT 'gen9randombattle'"
+        )
     if "raw_log" not in table_columns.get("replays", set()):
         statements.append("ALTER TABLE replays ADD COLUMN raw_log TEXT")
 
