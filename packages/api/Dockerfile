@@ -24,7 +24,7 @@ RUN pip install uv && \
 
 RUN chown -R poke:poke /app
 
-USER poke
+USER 100:101
 
 EXPOSE 8000
 
