@@ -139,7 +139,12 @@ class TestMeta:
     def test_formats_and_models(self, client: TestClient) -> None:
         formats = client.get("/formats")
         assert formats.status_code == 200
-        assert any(fmt["id"] == "gen9randombattle" for fmt in formats.json())
+        format_map = {fmt["id"]: fmt for fmt in formats.json()}
+        assert "gen9randombattle" in format_map
+        natdex_doubles_ubers = format_map["gen9nationaldexdoublesubers"]
+        assert natdex_doubles_ubers["kind"] == "doubles"
+        assert natdex_doubles_ubers["requires_team"] is True
+        assert natdex_doubles_ubers["active_slots"] == 2
 
         models = client.get("/models")
         assert models.status_code == 200

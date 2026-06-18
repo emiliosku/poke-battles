@@ -124,6 +124,10 @@ class FormatResponse(BaseModel):
     team_size: int
     level: int
     random_team: bool
+    requires_team: bool
+    active_slots: int
+    practice_supported: bool
+    experimental: bool
 
 
 class ModelResponse(BaseModel):

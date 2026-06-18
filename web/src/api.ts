@@ -110,6 +110,10 @@ export interface FormatOption {
   team_size: number;
   level: number;
   random_team: boolean;
+  requires_team: boolean;
+  active_slots: number;
+  practice_supported: boolean;
+  experimental: boolean;
 }
 
 export interface ModelOption {
