@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from pokeapi.db.models import Base
@@ -32,6 +32,29 @@ def make_engine(url: str | None = None) -> Engine:
 
 def init_db(engine: Engine) -> None:
     Base.metadata.create_all(engine)
+    if engine.dialect.name == "postgresql":
+        _ensure_postgres_columns(engine)
+
+
+def _ensure_postgres_columns(engine: Engine) -> None:
+    inspector = inspect(engine)
+    table_columns = {
+        table: {column["name"] for column in inspector.get_columns(table)}
+        for table in ("battles", "simulations", "replays")
+        if inspector.has_table(table)
+    }
+    statements = []
+    if "owner_id" not in table_columns.get("battles", set()):
+        statements.append("ALTER TABLE battles ADD COLUMN owner_id VARCHAR(64)")
+    if "owner_id" not in table_columns.get("simulations", set()):
+        statements.append("ALTER TABLE simulations ADD COLUMN owner_id VARCHAR(64)")
+    if "raw_log" not in table_columns.get("replays", set()):
+        statements.append("ALTER TABLE replays ADD COLUMN raw_log TEXT")
+
+    if statements:
+        with engine.begin() as conn:
+            for statement in statements:
+                conn.execute(text(statement))
 
 
 def make_session_factory(engine: Engine) -> sessionmaker[Session]:
