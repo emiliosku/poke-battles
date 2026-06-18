@@ -292,7 +292,9 @@ class BattleService:
                 pass
             if not timed_out_by_points:
                 return {"error": "practice battle timed out", "duration_s": time.monotonic() - t0}
-        bid = next(iter(human._events.keys()), None) or next(iter(human._battle_winners.keys()), None)
+        bid = next(iter(human._events.keys()), None) or next(
+            iter(human._battle_winners.keys()), None
+        )
         duration = time.monotonic() - t0
         if bid is None:
             return {"error": "practice battle did not start", "duration_s": duration}

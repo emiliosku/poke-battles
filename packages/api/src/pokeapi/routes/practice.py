@@ -36,8 +36,10 @@ async def create_practice_battle(
     bservice = request.app.state.bservice
     action_controller = request.app.state.practice_controller
     fmt = _known_format(body.format)
-    if fmt is not None and fmt.requires_team and (
-        body.user_team_id is None or body.ai_team_id is None
+    if (
+        fmt is not None
+        and fmt.requires_team
+        and (body.user_team_id is None or body.ai_team_id is None)
     ):
         raise HTTPException(status_code=400, detail=f"{fmt.name} requires both teams")
     battle_id = f"battle-{uuid.uuid4().hex[:8]}"
@@ -83,7 +85,9 @@ async def create_practice_battle(
             with session_scope(factory) as sess:
                 b = sess.get(Battle, battle_id)
                 if b is not None:
-                    b.status = str(result.get("status") or ("failed" if "error" in result else "finished"))
+                    b.status = str(
+                        result.get("status") or ("failed" if "error" in result else "finished")
+                    )
                     b.winner = result.get("winner")
                     b.turns = result.get("turns", 0)
                     b.duration_s = result.get("duration_s", 0.0)
