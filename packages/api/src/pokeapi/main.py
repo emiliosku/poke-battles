@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from pokeapi.db import init_db, make_engine, make_session_factory
 from pokeapi.orchestrator import Orchestrator
-from pokeapi.routes import battles, health, leaderboard, replays, simulations, teams, ws
+from pokeapi.routes import auth, battles, health, leaderboard, meta, replays, simulations, teams, ws
 from pokeapi.routes.ws import manager as ws_manager
 from pokeapi.schemas import HealthResponse
 from pokeapi.settings import get_settings
@@ -51,6 +51,7 @@ async def lifespan(app: FastAPI) -> Any:
     app.state.session_factory = factory
     app.state.orchestrator = orchestrator
     app.state.bservice = bservice
+    app.state.models = models
     app.state.start_time = time.monotonic()
     logger.info("pokeapi ready on %s", settings.database_url)
     try:
@@ -77,10 +78,12 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(health.router)
+    app.include_router(auth.router)
     app.include_router(teams.router)
     app.include_router(battles.router)
     app.include_router(simulations.router)
     app.include_router(leaderboard.router)
+    app.include_router(meta.router)
     app.include_router(replays.router)
     app.include_router(ws.router)
 

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
+from pokeapi.auth import require_current_user
 from pokeapi.db import session_scope
-from pokeapi.db.models import Team
+from pokeapi.db.models import Team, User
 from pokeapi.schemas import TeamCreate, TeamResponse
 from pokecore import parse_team
 
@@ -27,19 +28,21 @@ def _team_to_response(team: Team) -> TeamResponse:
 @router.get("", response_model=list[TeamResponse])
 async def list_teams(
     request: Request,
-    owner_id: str | None = None,
+    user: User = Depends(require_current_user),
 ) -> list[TeamResponse]:
     factory = request.app.state.session_factory
     with session_scope(factory) as session:
-        q = session.query(Team)
-        if owner_id:
-            q = q.filter(Team.owner_id == owner_id)
+        q = session.query(Team).filter(Team.owner_id == user.id)
         teams = q.order_by(Team.created_at.desc()).all()
         return [_team_to_response(t) for t in teams]
 
 
 @router.post("", response_model=TeamResponse, status_code=status.HTTP_201_CREATED)
-async def create_team(body: TeamCreate, owner_id: str, request: Request) -> TeamResponse:
+async def create_team(
+    body: TeamCreate,
+    request: Request,
+    user: User = Depends(require_current_user),
+) -> TeamResponse:
     try:
         parse_team(body.paste)
     except ValueError as exc:
@@ -47,7 +50,7 @@ async def create_team(body: TeamCreate, owner_id: str, request: Request) -> Team
     factory = request.app.state.session_factory
     with session_scope(factory) as session:
         team = Team(
-            owner_id=owner_id,
+            owner_id=user.id,
             name=body.name,
             paste=body.paste,
             format=body.format,
@@ -65,14 +68,22 @@ async def get_team(team_id: int, request: Request) -> TeamResponse:
         team = session.get(Team, team_id)
         if team is None:
             raise HTTPException(status_code=404, detail="Team not found")
+        if not team.is_public:
+            user = require_current_user(request)
+            if team.owner_id != user.id:
+                raise HTTPException(status_code=404, detail="Team not found")
         return _team_to_response(team)
 
 
 @router.delete("/{team_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_team(team_id: int, request: Request) -> None:
+async def delete_team(
+    team_id: int,
+    request: Request,
+    user: User = Depends(require_current_user),
+) -> None:
     factory = request.app.state.session_factory
     with session_scope(factory) as session:
         team = session.get(Team, team_id)
-        if team is None:
+        if team is None or team.owner_id != user.id:
             raise HTTPException(status_code=404, detail="Team not found")
         session.delete(team)

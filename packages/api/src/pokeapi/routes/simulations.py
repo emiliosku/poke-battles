@@ -7,10 +7,11 @@ import logging
 import time
 import uuid
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
+from pokeapi.auth import require_current_user
 from pokeapi.db import session_scope
-from pokeapi.db.models import Simulation
+from pokeapi.db.models import Simulation, User
 from pokeapi.schemas import SimulationCreate, SimulationResponse
 
 logger = logging.getLogger(__name__)
@@ -19,15 +20,22 @@ router = APIRouter(prefix="/simulations", tags=["simulations"])
 
 
 @router.post("", response_model=SimulationResponse, status_code=status.HTTP_202_ACCEPTED)
-async def create_simulation(body: SimulationCreate, request: Request) -> SimulationResponse:
+async def create_simulation(
+    body: SimulationCreate,
+    request: Request,
+    user: User = Depends(require_current_user),
+) -> SimulationResponse:
     if body.mode not in {"round_robin", "team_vs_team", "ladder"}:
         raise HTTPException(status_code=400, detail=f"Unknown mode: {body.mode}")
+    if body.mode in {"round_robin", "ladder"} and len(body.models) < 2:
+        raise HTTPException(status_code=400, detail=f"{body.mode} requires at least two models")
     factory = request.app.state.session_factory
     bservice = request.app.state.bservice
     sim_id = f"sim-{uuid.uuid4().hex[:8]}"
     with session_scope(factory) as session:
         sim = Simulation(
             id=sim_id,
+            owner_id=user.id,
             mode=body.mode,
             format=body.format,
             team_a_id=body.team_a_id,
@@ -67,6 +75,25 @@ async def create_simulation(body: SimulationCreate, request: Request) -> Simulat
 
     asyncio.create_task(_run())
     return _to_response(sim)
+
+
+@router.get("", response_model=list[SimulationResponse])
+async def list_simulations(
+    request: Request,
+    limit: int = 25,
+    user: User = Depends(require_current_user),
+) -> list[SimulationResponse]:
+    factory = request.app.state.session_factory
+    capped_limit = min(max(limit, 1), 100)
+    with session_scope(factory) as session:
+        simulations = (
+            session.query(Simulation)
+            .filter(Simulation.owner_id == user.id)
+            .order_by(Simulation.created_at.desc())
+            .limit(capped_limit)
+            .all()
+        )
+        return [_to_response(sim) for sim in simulations]
 
 
 @router.get("/{sim_id}", response_model=SimulationResponse)
