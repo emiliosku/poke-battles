@@ -115,11 +115,11 @@ export default function Practice() {
   }, [action]);
 
   useEffect(() => {
-    if (!id || battle?.status !== "finished" || events.length > 0) return;
+    if (!id || !battle || !terminalStatuses.has(battle.status) || events.length > 0) return;
     api.replays.get(id)
       .then((replay) => setEvents(replay.events))
       .catch(() => undefined);
-  }, [battle?.status, events.length, id]);
+  }, [battle, events.length, id]);
 
   const teamOptions = useMemo(
     () => teams.filter((team) => !team.format || team.format === effectiveFormat),
