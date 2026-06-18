@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
@@ -39,26 +39,39 @@ def init_db(engine: Engine) -> None:
 def _ensure_postgres_columns(engine: Engine) -> None:
     inspector = inspect(engine)
     table_columns = {
-        table: {column["name"] for column in inspector.get_columns(table)}
+        table: {column["name"]: column for column in inspector.get_columns(table)}
         for table in ("battles", "simulations", "replays")
         if inspector.has_table(table)
     }
     statements = []
-    if "owner_id" not in table_columns.get("battles", set()):
+    battle_columns = table_columns.get("battles", {})
+    simulation_columns = table_columns.get("simulations", {})
+    replay_columns = table_columns.get("replays", {})
+
+    if "owner_id" not in battle_columns:
         statements.append("ALTER TABLE battles ADD COLUMN owner_id VARCHAR(64)")
-    if "owner_id" not in table_columns.get("simulations", set()):
+    if "status" in battle_columns and _varchar_length(battle_columns["status"]) < 32:
+        statements.append("ALTER TABLE battles ALTER COLUMN status TYPE VARCHAR(32)")
+    if "owner_id" not in simulation_columns:
         statements.append("ALTER TABLE simulations ADD COLUMN owner_id VARCHAR(64)")
-    if "format" not in table_columns.get("simulations", set()):
+    if "format" not in simulation_columns:
         statements.append(
             "ALTER TABLE simulations ADD COLUMN format VARCHAR(64) DEFAULT 'gen9randombattle'"
         )
-    if "raw_log" not in table_columns.get("replays", set()):
+    if "status" in simulation_columns and _varchar_length(simulation_columns["status"]) < 32:
+        statements.append("ALTER TABLE simulations ALTER COLUMN status TYPE VARCHAR(32)")
+    if "raw_log" not in replay_columns:
         statements.append("ALTER TABLE replays ADD COLUMN raw_log TEXT")
 
     if statements:
         with engine.begin() as conn:
             for statement in statements:
                 conn.execute(text(statement))
+
+
+def _varchar_length(column: Mapping[str, object]) -> int:
+    length = getattr(column["type"], "length", None)
+    return int(length) if length is not None else 32
 
 
 def make_session_factory(engine: Engine) -> sessionmaker[Session]:

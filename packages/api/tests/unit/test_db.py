@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import Engine, StaticPool, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from pokeapi.db.models import Base, Battle, Rating, Team, User
+from pokeapi.db.models import Base, Battle, Rating, Simulation, Team, Tournament, User
 
 
 @pytest.fixture
@@ -66,6 +66,11 @@ class TestTeam:
 
 
 class TestBattle:
+    def test_status_columns_allow_practice_terminal_statuses(self) -> None:
+        assert Battle.__table__.c.status.type.length >= len("user_timeout_loss")
+        assert Simulation.__table__.c.status.type.length >= len("user_timeout_loss")
+        assert Tournament.__table__.c.status.type.length >= len("user_timeout_loss")
+
     def test_create_battle(self, session: Session) -> None:
         b = Battle(
             id="battle-1",
