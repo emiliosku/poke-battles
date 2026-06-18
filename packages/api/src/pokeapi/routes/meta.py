@@ -21,6 +21,10 @@ async def list_formats() -> list[FormatResponse]:
             team_size=fmt.team_size,
             level=fmt.level,
             random_team=fmt.random_team,
+            requires_team=fmt.requires_team,
+            active_slots=fmt.active_slots,
+            practice_supported=fmt.practice_supported,
+            experimental=fmt.experimental,
         )
         for fmt in SUPPORTED_FORMATS
     ]

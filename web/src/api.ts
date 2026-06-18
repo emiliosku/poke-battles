@@ -110,6 +110,24 @@ export interface FormatOption {
   team_size: number;
   level: number;
   random_team: boolean;
+  requires_team: boolean;
+  active_slots: number;
+  practice_supported: boolean;
+  experimental: boolean;
+}
+
+export interface PracticeActionOption {
+  id: string;
+  label: string;
+  message: string;
+}
+
+export interface PracticeActionRequest {
+  kind: "practice_action_required";
+  request_id: string;
+  battle_id: string;
+  expires_at: string;
+  options: PracticeActionOption[];
 }
 
 export interface ModelOption {
@@ -200,6 +218,20 @@ export const api = {
       team2_id?: number;
     }) => r<BattleResponse>("/battles", { method: "POST", body: JSON.stringify(data) }),
     get: (id: string) => r<BattleResponse>(`/battles/${id}`),
+  },
+  practice: {
+    create: (data: {
+      format: string;
+      player_username: string;
+      ai_username?: string;
+      ai_model: string;
+      user_team_id?: number;
+      ai_team_id?: number;
+      total_timer_s?: number;
+    }) => r<BattleResponse>("/practice/battles", { method: "POST", body: JSON.stringify(data) }),
+    action: (battleId: string) => r<{ action: PracticeActionRequest | null }>(`/practice/battles/${battleId}/action`),
+    submitAction: (battleId: string, data: { request_id: string; option_id: string }) =>
+      r<{ accepted: boolean }>(`/practice/battles/${battleId}/actions`, { method: "POST", body: JSON.stringify(data) }),
   },
   simulations: {
     list: (limit = 25) => r<SimulationResponse[]>(`/simulations${query({ limit })}`),

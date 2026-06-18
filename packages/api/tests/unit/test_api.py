@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 import pokeapi.settings as settings_module
 from pokeapi.auth import create_session
 from pokeapi.db import session_scope
-from pokeapi.db.models import User
+from pokeapi.db.models import Battle, User
 from pokeapi.main import create_app
 
 
@@ -114,6 +114,45 @@ class TestBattles:
         assert body["format"] == "gen9randombattle"
 
 
+class TestPracticeBattles:
+    def test_natdex_doubles_ubers_requires_both_teams(self, authed_client: TestClient) -> None:
+        r = authed_client.post(
+            "/practice/battles",
+            json={
+                "format": "gen9nationaldexdoublesubers",
+                "player_username": "alice",
+                "ai_username": "bot",
+                "ai_model": "random",
+            },
+        )
+
+        assert r.status_code == 400
+        assert "requires both teams" in r.json()["detail"]
+
+    def test_missing_pending_action_returns_conflict(self, authed_client: TestClient) -> None:
+        factory = authed_client.app.state.session_factory
+        with session_scope(factory) as session:
+            session.add(
+                Battle(
+                    id="battle-practice-action",
+                    format="gen9randombattle",
+                    status="running",
+                    owner_id="github:u1",
+                    player1_username="alice",
+                    player2_username="bot",
+                    model1="human",
+                    model2="random",
+                )
+            )
+
+        r = authed_client.post(
+            "/practice/battles/battle-practice-action/actions",
+            json={"request_id": "missing", "option_id": "0"},
+        )
+
+        assert r.status_code == 409
+
+
 class TestSimulations:
     def test_create_round_robin(self, authed_client: TestClient) -> None:
         r = authed_client.post(
@@ -139,7 +178,12 @@ class TestMeta:
     def test_formats_and_models(self, client: TestClient) -> None:
         formats = client.get("/formats")
         assert formats.status_code == 200
-        assert any(fmt["id"] == "gen9randombattle" for fmt in formats.json())
+        format_map = {fmt["id"]: fmt for fmt in formats.json()}
+        assert "gen9randombattle" in format_map
+        natdex_doubles_ubers = format_map["gen9nationaldexdoublesubers"]
+        assert natdex_doubles_ubers["kind"] == "doubles"
+        assert natdex_doubles_ubers["requires_team"] is True
+        assert natdex_doubles_ubers["active_slots"] == 2
 
         models = client.get("/models")
         assert models.status_code == 200

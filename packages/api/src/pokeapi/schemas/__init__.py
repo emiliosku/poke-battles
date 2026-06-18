@@ -73,6 +73,25 @@ class BattleResponse(BaseModel):
     finished_at: datetime | None
 
 
+class PracticeBattleCreate(BaseModel):
+    format: str = "gen9randombattle"
+    player_username: str = Field(min_length=1, max_length=64)
+    ai_username: str = Field(default="AI", min_length=1, max_length=64)
+    ai_model: str = "random"
+    user_team_id: int | None = None
+    ai_team_id: int | None = None
+    total_timer_s: int | None = Field(default=None, ge=60, le=600)
+
+
+class PracticeActionSubmit(BaseModel):
+    request_id: str
+    option_id: str
+
+
+class PracticeActionResponse(BaseModel):
+    accepted: bool
+
+
 class SimulationCreate(BaseModel):
     mode: str = Field(description="'round_robin', 'team_vs_team', or 'ladder'")
     format: str = "gen9randombattle"
@@ -124,6 +143,10 @@ class FormatResponse(BaseModel):
     team_size: int
     level: int
     random_team: bool
+    requires_team: bool
+    active_slots: int
+    practice_supported: bool
+    experimental: bool
 
 
 class ModelResponse(BaseModel):
@@ -149,6 +172,9 @@ __all__ = [
     "HealthResponse",
     "LeaderboardEntry",
     "ModelResponse",
+    "PracticeActionResponse",
+    "PracticeActionSubmit",
+    "PracticeBattleCreate",
     "ReplayResponse",
     "SimulationCreate",
     "SimulationResponse",

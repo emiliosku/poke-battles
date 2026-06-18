@@ -19,6 +19,8 @@ from typing import TYPE_CHECKING, Any
 from poke_env.ps_client.account_configuration import AccountConfiguration
 from poke_env.ps_client.server_configuration import ServerConfiguration
 
+from pokeapi.services.practice import PracticeActionController, decide_points
+from pokeengine.events import Event, EventKind
 from pokeengine.player import AgentPlayer
 from pokeengine.runner import (
     ShowdownHandle,
@@ -219,6 +221,139 @@ class BattleService:
             "events": events,
             "raw_log": a.raw_log_for(bid),
             "events_count": len(events),
+        }
+
+    async def run_practice_battle(
+        self,
+        *,
+        app_battle_id: str,
+        battle_format: str,
+        player: str,
+        ai_player: str,
+        ai_model: str,
+        action_controller: PracticeActionController,
+        player_team_paste: str | None = None,
+        ai_team_paste: str | None = None,
+        total_timer_s: int | None = None,
+        timeout: float = 240.0,
+    ) -> dict[str, Any]:
+        """Run one user-vs-AI practice battle without rating side effects."""
+        if self.handle is None:
+            self.start()
+        assert self.handle is not None
+        server = _server_config_for_port(self.handle.port)
+        suffix = _random_suffix()
+        player_username = f"{player}-{suffix}"
+        ai_username = f"{ai_player}-{suffix}"
+
+        async def _broadcast_event(_bt: str, ev: Any) -> None:
+            if self._manager is not None:
+                await self._manager.broadcast(app_battle_id, ev.to_dict())
+
+        async def _broadcast_raw(_bt: str, line: str) -> None:
+            if self._manager is not None:
+                await self._manager.broadcast_raw(app_battle_id, line)
+
+        async def _human_chooser(_player: AgentPlayer, battle: Any) -> Any:
+            return await action_controller.request_choice(app_battle_id, battle)
+
+        human = AgentPlayer(
+            account_configuration=AccountConfiguration(player_username, None),
+            server_configuration=server,
+            battle_format=battle_format,
+            max_concurrent_battles=1,
+            team=player_team_paste,
+            choose_move_for_turn=_human_chooser,
+            on_event=_broadcast_event,
+            on_raw_line=_broadcast_raw,
+        )
+        ai = AgentPlayer(
+            account_configuration=AccountConfiguration(ai_username, None),
+            server_configuration=server,
+            battle_format=battle_format,
+            max_concurrent_battles=1,
+            team=ai_team_paste,
+            choose_move_for_turn=self.chooser_for(ai_model),
+            on_event=_broadcast_event,
+            on_raw_line=_broadcast_raw,
+        )
+        t0 = time.monotonic()
+        battle_task = asyncio.create_task(human.battle_against(ai, n_battles=1))
+        battle_timeout = total_timer_s if total_timer_s is not None else timeout
+        timed_out_by_points = False
+        try:
+            await asyncio.wait_for(battle_task, timeout=battle_timeout)
+        except TimeoutError:
+            timed_out_by_points = total_timer_s is not None
+            battle_task.cancel()
+            try:
+                await battle_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            if not timed_out_by_points:
+                return {"error": "practice battle timed out", "duration_s": time.monotonic() - t0}
+        bid = next(iter(human._events.keys()), None) or next(
+            iter(human._battle_winners.keys()), None
+        )
+        duration = time.monotonic() - t0
+        if bid is None:
+            return {"error": "practice battle did not start", "duration_s": duration}
+        events = human.events_for(bid)
+        raw_log = human.raw_log_for(bid)
+        turns = human._battle_turns.get(bid, 0)
+        winner = human._battle_winners.get(bid) or _winner_from_events(events)
+        result_status = "finished"
+        summary: dict[str, Any] = {}
+        if action_controller.user_timed_out(app_battle_id):
+            result_status = "user_timeout_loss"
+            winner = ai_username
+            events.append(
+                Event(
+                    kind=EventKind.MESSAGE,
+                    turn=turns,
+                    detail="User move timer expired; practice battle forfeited.",
+                )
+            )
+        elif timed_out_by_points:
+            ai_bid = next(iter(ai._events.keys()), bid)
+            decision = decide_points(
+                player_name=player_username,
+                ai_name=ai_username,
+                player_raw_log=raw_log,
+                ai_raw_log=ai.raw_log_for(ai_bid),
+            )
+            result_status = "timed_out_draw" if decision.winner is None else "timed_out_points"
+            winner = decision.winner
+            summary = {
+                "point_decision_reason": decision.reason,
+                "player_score": {
+                    "remaining": decision.player_score.remaining,
+                    "hp_percent_total": decision.player_score.hp_percent_total,
+                },
+                "ai_score": {
+                    "remaining": decision.ai_score.remaining,
+                    "hp_percent_total": decision.ai_score.hp_percent_total,
+                },
+            }
+            events.append(
+                Event(
+                    kind=EventKind.MESSAGE,
+                    turn=turns,
+                    detail=f"Practice timer expired; result decided by {decision.reason}.",
+                    raw=summary,
+                )
+            )
+        return {
+            "battle_id": bid,
+            "winner": winner,
+            "turns": turns,
+            "duration_s": duration,
+            "format": battle_format,
+            "events": events,
+            "raw_log": raw_log,
+            "events_count": len(events),
+            "status": result_status,
+            "summary": summary,
         }
 
     async def run_simulation(

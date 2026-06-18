@@ -12,10 +12,22 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from pokeapi.db import init_db, make_engine, make_session_factory
 from pokeapi.orchestrator import Orchestrator
-from pokeapi.routes import auth, battles, health, leaderboard, meta, replays, simulations, teams, ws
+from pokeapi.routes import (
+    auth,
+    battles,
+    health,
+    leaderboard,
+    meta,
+    practice,
+    replays,
+    simulations,
+    teams,
+    ws,
+)
 from pokeapi.routes.ws import manager as ws_manager
 from pokeapi.schemas import HealthResponse
 from pokeapi.services import BattleService
+from pokeapi.services.practice import PracticeActionController
 from pokeapi.settings import get_settings
 from pokellm.config import find_models_yaml, load_models_yaml
 
@@ -48,6 +60,7 @@ async def lifespan(app: FastAPI) -> Any:
     app.state.session_factory = factory
     app.state.orchestrator = orchestrator
     app.state.bservice = bservice
+    app.state.practice_controller = PracticeActionController(broadcaster=ws_manager)
     app.state.models = models
     app.state.start_time = time.monotonic()
     logger.info("pokeapi ready on %s", settings.database_url)
@@ -81,6 +94,7 @@ def create_app() -> FastAPI:
     app.include_router(simulations.router)
     app.include_router(leaderboard.router)
     app.include_router(meta.router)
+    app.include_router(practice.router)
     app.include_router(replays.router)
     app.include_router(ws.router)
 
