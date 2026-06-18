@@ -54,6 +54,7 @@ async def login(provider: Provider) -> RedirectResponse:
     response.set_cookie(
         "poke_battles_oauth_state",
         state,
+        path="/",
         httponly=True,
         secure=get_settings().external_base_url.startswith("https://"),
         samesite="lax",
@@ -84,10 +85,11 @@ async def callback(
         session_token = create_session(session, user.id, settings)
 
     response = RedirectResponse(settings.frontend_base_url.rstrip("/") + "/")
-    response.delete_cookie("poke_battles_oauth_state")
+    response.delete_cookie("poke_battles_oauth_state", path="/")
     response.set_cookie(
         settings.session_cookie_name,
         session_token,
+        path="/",
         httponly=True,
         secure=settings.external_base_url.startswith("https://"),
         samesite="lax",
@@ -104,7 +106,7 @@ async def logout(request: Request, response: Response) -> None:
         factory = request.app.state.session_factory
         with session_scope(factory) as session:
             delete_session(session, token)
-    response.delete_cookie(settings.session_cookie_name)
+    response.delete_cookie(settings.session_cookie_name, path="/")
 
 
 __all__ = ["router"]

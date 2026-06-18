@@ -32,6 +32,10 @@ def token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def utcnow() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
 def sign_state(value: str, settings: Settings | None = None) -> str:
     cfg = settings or get_settings()
     sig = hmac.new(cfg.session_secret.encode("utf-8"), value.encode("utf-8"), hashlib.sha256)
@@ -162,7 +166,7 @@ def upsert_user(session: Session, profile: dict[str, str]) -> User:
 def create_session(session: Session, user_id: str, settings: Settings | None = None) -> str:
     cfg = settings or get_settings()
     token = secrets.token_urlsafe(48)
-    expires_at = datetime.now(UTC) + timedelta(days=cfg.session_days)
+    expires_at = utcnow() + timedelta(days=cfg.session_days)
     session.add(UserSession(token_hash=token_hash(token), user_id=user_id, expires_at=expires_at))
     return token
 
@@ -178,9 +182,13 @@ def user_for_session_token(factory: sessionmaker[Session], token: str | None) ->
         return None
     with session_scope(factory) as session:
         record = session.query(UserSession).filter_by(token_hash=token_hash(token)).first()
-        if record is None or record.expires_at <= datetime.now(UTC):
-            if record is not None:
-                session.delete(record)
+        if record is None:
+            return None
+        expires_at = record.expires_at
+        if expires_at.tzinfo is not None:
+            expires_at = expires_at.astimezone(UTC).replace(tzinfo=None)
+        if expires_at <= utcnow():
+            session.delete(record)
             return None
         user = session.get(User, record.user_id)
         if user is None:
@@ -198,7 +206,7 @@ def optional_current_user(request: Request) -> User | None:
 
 
 def require_current_user(request: Request) -> User:
-    user = optional_current_user(request, session_token)
+    user = optional_current_user(request)
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
     return user
