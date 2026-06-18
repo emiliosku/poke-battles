@@ -1,87 +1,89 @@
-import { useState } from "react";
-import { api, type ReplayResponse } from "../api";
+import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
+import { api, type BattleEvent, type ReplayResponse } from "../api";
 
-const EVENT_LABELS: Record<string, string> = {
-  battle_start: "Battle Started",
-  turn_start: "Turn",
-  turn_end: "Turn End",
-  switch: "switched in",
-  move: "used",
-  damage: "took damage",
-  heal: "healed",
-  boost: "boosted",
-  unboost: "lowered",
-  status: "got status",
-  cure_status: "cured status",
-  faint: "fainted",
-  weather_start: "Weather started",
-  weather_end: "Weather ended",
-  field_start: "Field effect started",
-  field_end: "Field effect ended",
-  side_condition_start: "Side condition applied",
-  side_condition_end: "Side condition removed",
-  switch_request: "Waiting for player",
-  battle_end: "Battle ended",
-  message: "",
-};
-
-function formatEvent(ev: Record<string, unknown>): string {
-  const kind = ev.kind as string;
-  const label = EVENT_LABELS[kind] || kind;
-  const turn = ev.turn as number;
-  const side = ev.side as string | undefined;
-  const detail = ev.detail as string | undefined;
-  const source = ev.source as string | undefined;
-  const target = ev.target as string | undefined;
-
-  if (kind === "turn_start") return `--- Turn ${turn} ---`;
-  if (kind === "move") return `${source} ${label} ${detail}${target ? ` → ${target}` : ""}`;
-  if (kind === "switch") return `${side} ${label}: ${detail}`;
-  if (kind === "damage") return `${side || target} ${label} (${detail})`;
-  if (kind === "faint") return `${target || side} ${label}!`;
-  if (kind === "battle_end") return `Winner: ${detail}`;
-
-  const parts = [side, target, source].filter(Boolean);
-  const prefix = parts.length ? `${parts.join("/")}: ` : "";
-  return `${prefix}${label}${detail ? ` — ${detail}` : ""}`;
+function eventText(event: BattleEvent): string {
+  const subject = event.source || event.target || event.side || "Battle";
+  if (event.kind === "turn_start") return `Turn ${event.turn}`;
+  if (event.kind === "move") return `${subject} used ${event.detail}`;
+  if (event.kind === "switch") return `${subject} switched (${event.detail || ""})`;
+  if (event.kind === "damage") return `${subject} took damage: ${event.detail}`;
+  if (event.kind === "heal") return `${subject} healed: ${event.detail}`;
+  if (event.kind === "faint") return `${subject} fainted`;
+  if (event.kind === "battle_end") return `Winner: ${event.detail}`;
+  return [event.kind, subject, event.detail].filter(Boolean).join(" · ");
 }
 
 export default function Replays() {
+  const location = useLocation();
+  const initialBattleId = typeof location.state === "object" && location.state && "battleId" in location.state
+    ? String(location.state.battleId)
+    : "";
   const [replay, setReplay] = useState<ReplayResponse | null>(null);
-  const [battleId, setBattleId] = useState("");
+  const [battleId, setBattleId] = useState(initialBattleId);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const load = async () => {
+  const load = async (id = battleId) => {
+    if (!id.trim()) return;
     setError("");
     setReplay(null);
+    setLoading(true);
     try {
-      const r = await api.replays.get(battleId);
-      setReplay(r);
-    } catch (err: unknown) {
-      setError(String(err instanceof Error ? err.message : err));
+      const result = await api.replays.get(id.trim());
+      setReplay(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
     }
   };
 
+  useEffect(() => {
+    if (initialBattleId) void load(initialBattleId);
+  }, []);
+
+  const lastEvent = replay?.events[replay.events.length - 1];
+
   return (
-    <div>
-      <h1>Replays</h1>
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-        <input placeholder="Battle ID" value={battleId} onChange={(e) => setBattleId(e.target.value)} style={{ flex: 1 }} />
-        <button onClick={load}>Load Replay</button>
-      </div>
-      {error && <div style={{ color: "red", marginBottom: 8 }}>{error}</div>}
-      {replay && (
-        <div style={{ background: "#fff", borderRadius: 8, padding: 12 }}>
-          <h2>Replay: {replay.battle_id}</h2>
-          <p>Format: {replay.format} — Turns: {replay.turns ?? "?"} — Duration: {replay.duration_s?.toFixed(1) ?? "?"}s</p>
-          <div style={{ fontFamily: "monospace", fontSize: 13, lineHeight: 1.6, maxHeight: 600, overflowY: "auto", background: "#fafafa", padding: 8, borderRadius: 4 }}>
-            {replay.events.length === 0 && <p style={{ color: "#999" }}>No events recorded.</p>}
-            {replay.events.map((ev, i) => (
-              <div key={i}>{formatEvent(ev)}</div>
-            ))}
-          </div>
+    <main className="page">
+      <section className="hero">
+        <span className="eyebrow">Replay archive</span>
+        <h1>Rewind the fight.</h1>
+        <p>Load a finished battle and read the normalized Showdown event stream as a tactical timeline.</p>
+      </section>
+      <section className="card stack">
+        <div className="row">
+          <input placeholder="Battle ID" value={battleId} onChange={(e) => setBattleId(e.target.value)} />
+          <button className="button" type="button" disabled={loading} onClick={() => void load()}>{loading ? "Loading..." : "Load replay"}</button>
         </div>
+        {error && <div className="notice error">{error}</div>}
+      </section>
+      {replay && (
+        <section className="grid two" style={{ marginTop: 16 }}>
+          <div className="card stack">
+            <span className="eyebrow">Summary</span>
+            <h2>{replay.battle_id}</h2>
+            <p>{replay.format} · {replay.turns ?? "?"} turns · {replay.duration_s?.toFixed(1) ?? "?"}s</p>
+            {lastEvent && <div className="notice">Final event: {eventText(lastEvent)}</div>}
+            <div className="battlefield" style={{ minHeight: 320 }}>
+              <div className="combatant top"><strong>Opponent side</strong><div className="sprite-orb">?</div></div>
+              <div className="combatant bottom"><strong>Your side</strong><div className="sprite-orb">?</div></div>
+            </div>
+          </div>
+          <div className="card stack">
+            <h2>Timeline</h2>
+            <div className="event-log">
+              {replay.events.length === 0 && <p>No replay events recorded.</p>}
+              {replay.events.map((event, index) => (
+                <div className="event-line" key={`${event.kind}-${index}`}>
+                  <span className="badge">T{event.turn}</span> {eventText(event)}
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
       )}
-    </div>
+    </main>
   );
 }

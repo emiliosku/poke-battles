@@ -1,40 +1,74 @@
-import { Link, Route, Routes } from "react-router-dom";
-import Dashboard from "./pages/Dashboard";
-import Teams from "./pages/Teams";
+import { Link, NavLink, Route, Routes } from "react-router-dom";
+import { useAuth } from "./auth";
 import Battle from "./pages/Battle";
-import Simulations from "./pages/Simulations";
+import Dashboard from "./pages/Dashboard";
 import Leaderboard from "./pages/Leaderboard";
 import Replays from "./pages/Replays";
+import SignIn from "./pages/SignIn";
+import Simulations from "./pages/Simulations";
+import Teams from "./pages/Teams";
 
 function Nav() {
+  const { user, loading, logout } = useAuth();
   return (
-    <nav style={{ display: "flex", gap: 16, padding: "8px 16px", borderBottom: "1px solid #ccc" }}>
-      <strong>Poké Battles</strong>
-      <Link to="/">Dashboard</Link>
-      <Link to="/teams">Teams</Link>
-      <Link to="/battle">Battle</Link>
-      <Link to="/simulations">Simulations</Link>
-      <Link to="/leaderboard">Leaderboard</Link>
-      <Link to="/replays">Replays</Link>
-    </nav>
+    <header className="topbar">
+      <Link className="brand" to="/">
+        <span className="brand-mark" aria-hidden="true" />
+        <span>Poké Battles</span>
+      </Link>
+      <nav className="nav" aria-label="Primary navigation">
+        <NavLink to="/">Dashboard</NavLink>
+        <NavLink to="/teams">Teams</NavLink>
+        <NavLink to="/battle">Battle</NavLink>
+        <NavLink to="/simulations">Simulations</NavLink>
+        <NavLink to="/leaderboard">Leaderboard</NavLink>
+        <NavLink to="/replays">Replays</NavLink>
+      </nav>
+      <div className="userbox">
+        {loading && <span>Checking session...</span>}
+        {!loading && user && (
+          <>
+            {user.avatar_url && <img className="avatar" src={user.avatar_url} alt="" />}
+            <span>{user.display_name || user.id}</span>
+            <button className="button ghost" type="button" onClick={() => void logout()}>
+              Logout
+            </button>
+          </>
+        )}
+        {!loading && !user && <Link className="button secondary" to="/signin">Sign in</Link>}
+      </div>
+    </header>
+  );
+}
+
+function NotFound() {
+  return (
+    <section className="page">
+      <div className="hero">
+        <span className="eyebrow">404</span>
+        <h1>Route fled.</h1>
+        <p>The page you requested is not in this battle party.</p>
+        <Link className="button" to="/">Return to dashboard</Link>
+      </div>
+    </section>
   );
 }
 
 export default function App() {
   return (
-    <div style={{ fontFamily: "sans-serif", minHeight: "100vh", background: "#f5f5f5" }}>
+    <div className="app-shell">
       <Nav />
-      <main style={{ padding: 16, maxWidth: 960, margin: "0 auto" }}>
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/teams" element={<Teams />} />
-          <Route path="/battle" element={<Battle />} />
-          <Route path="/battle/:id" element={<Battle />} />
-          <Route path="/simulations" element={<Simulations />} />
-          <Route path="/leaderboard" element={<Leaderboard />} />
-          <Route path="/replays" element={<Replays />} />
-        </Routes>
-      </main>
+      <Routes>
+        <Route path="/" element={<Dashboard />} />
+        <Route path="/signin" element={<SignIn />} />
+        <Route path="/teams" element={<Teams />} />
+        <Route path="/battle" element={<Battle />} />
+        <Route path="/battle/:id" element={<Battle />} />
+        <Route path="/simulations" element={<Simulations />} />
+        <Route path="/leaderboard" element={<Leaderboard />} />
+        <Route path="/replays" element={<Replays />} />
+        <Route path="*" element={<NotFound />} />
+      </Routes>
     </div>
   );
 }

@@ -7,7 +7,7 @@ Legend: `[ ]` not started, `[~]` in progress, `[x]` done, `[!]` blocked or defer
 ## 0. Branching And Delivery
 
 - [x] Create feature branch `feat/free-auth-rich-web-ui` in `poke-battles`.
-- [ ] Commit regularly after coherent, verified slices.
+- [x] Commit regularly after coherent, verified slices.
 - [ ] Push branch to `origin`.
 - [ ] Create GitHub PR for `poke-battles` branch.
 - [ ] If OCI infra changes are needed, create a separate branch/PR in `oci-infra` and avoid mixing app code with infra code.
@@ -16,28 +16,28 @@ Legend: `[ ]` not started, `[~]` in progress, `[x]` done, `[!]` blocked or defer
 
 - [x] Decide against Clerk/Supabase because the app must stay free all the way.
 - [x] Select direct FastAPI OAuth with Google/GitHub providers and server-side sessions.
-- [ ] Add backend auth settings for OAuth client IDs/secrets, redirect base URL, session cookie, and session secret.
-- [ ] Add `UserSession` persistence model for HTTP-only cookie sessions.
-- [ ] Add auth service helpers for OAuth state, session token hashing, current user lookup, and logout.
-- [ ] Add GitHub OAuth login/callback flow.
-- [ ] Add Google OAuth login/callback flow.
-- [ ] Add `GET /auth/me` and `POST /auth/logout` endpoints.
-- [ ] Upsert `User` rows from OAuth profile data.
-- [ ] Protect owner-scoped and resource-creating endpoints.
+- [x] Add backend auth settings for OAuth client IDs/secrets, redirect base URL, session cookie, and session secret.
+- [x] Add `UserSession` persistence model for HTTP-only cookie sessions.
+- [x] Add auth service helpers for OAuth state, session token hashing, current user lookup, and logout.
+- [x] Add GitHub OAuth login/callback flow.
+- [x] Add Google OAuth login/callback flow.
+- [x] Add `GET /auth/me` and `POST /auth/logout` endpoints.
+- [x] Upsert `User` rows from OAuth profile data.
+- [x] Protect owner-scoped and resource-creating endpoints.
 - [ ] Add API tests for anonymous, logged-in, logout, and protected route behavior.
 
 ## 2. Backend API Contract Fixes
 
-- [ ] Replace `POST /teams?owner_id=...` with authenticated team creation using current user ID.
-- [ ] Keep team listing scoped to current user by default; decide whether public teams need a separate endpoint.
-- [ ] Add owner checks for team delete.
-- [ ] Add `GET /models` backed by `models.yaml`, returning safe metadata only.
-- [ ] Add `GET /formats` backed by `pokecore.formats`.
-- [ ] Add `GET /battles` for dashboard/history.
-- [ ] Add `GET /simulations` for dashboard/history.
-- [ ] Fix battle IDs to use collision-safe UUIDs.
-- [ ] Persist `running`, `failed`, `started_at`, `finished_at`, and `duration_s` accurately.
-- [ ] Store replay summary metadata on completion.
+- [x] Replace `POST /teams?owner_id=...` with authenticated team creation using current user ID.
+- [x] Keep team listing scoped to current user by default; decide whether public teams need a separate endpoint.
+- [x] Add owner checks for team delete.
+- [x] Add `GET /models` backed by `models.yaml`, returning safe metadata only.
+- [x] Add `GET /formats` backed by `pokecore.formats`.
+- [x] Add `GET /battles` for dashboard/history.
+- [x] Add `GET /simulations` for dashboard/history.
+- [x] Fix battle IDs to use collision-safe UUIDs.
+- [x] Persist `running`, `failed`, `started_at`, `finished_at`, and `duration_s` accurately.
+- [x] Store replay summary metadata on completion.
 - [ ] Expose raw replay log safely if needed by the UI.
 - [ ] Validate simulation mode-specific requirements.
 - [ ] Add tests for list/meta endpoints and lifecycle fields.
@@ -53,46 +53,46 @@ Legend: `[ ]` not started, `[~]` in progress, `[x]` done, `[!]` blocked or defer
 
 ## 4. Frontend Foundation
 
-- [ ] Configure app base path for production under `/poke-battles/`.
-- [ ] Configure API base as `/poke-battles/api` in production and `/api` in local dev.
-- [ ] Configure WebSocket base as `/poke-battles/ws` in production and `/ws` in local dev.
-- [ ] Fix Vite dev proxy to strip `/api` like production.
-- [ ] Replace `window.location.href` route changes with React Router navigation.
-- [ ] Replace hardcoded raw anchors with `Link`/`NavLink`.
-- [ ] Add robust API client: empty body handling, typed errors, auth awareness, query helpers.
-- [ ] Add shared UI primitives: buttons, cards, badges, text inputs, selects, tables, empty states, errors, loading states.
-- [ ] Add responsive layout/navigation.
-- [ ] Add route-level 404.
-- [ ] Add accessibility basics: labels, focus states, aria-live for status/errors, table scopes.
+- [x] Configure app base path for production under `/poke-battles/`.
+- [x] Configure API base as `/poke-battles/api` in production and `/api` in local dev.
+- [x] Configure WebSocket base as `/poke-battles/ws` in production and `/ws` in local dev.
+- [x] Fix Vite dev proxy to strip `/api` like production.
+- [x] Replace `window.location.href` route changes with React Router navigation.
+- [x] Replace hardcoded raw anchors with `Link`/`NavLink`.
+- [x] Add robust API client: empty body handling, typed errors, auth awareness, query helpers.
+- [x] Add shared UI primitives: buttons, cards, badges, text inputs, selects, tables, empty states, errors, loading states.
+- [x] Add responsive layout/navigation.
+- [x] Add route-level 404.
+- [x] Add accessibility basics: labels, focus states, aria-live for status/errors, table scopes.
 
 ## 5. Frontend Authentication UI
 
-- [ ] Add sign-in page with GitHub and Google buttons.
-- [ ] Add authenticated shell with user avatar/name and logout.
-- [ ] Add unauthenticated shell for public pages.
-- [ ] Fetch `GET /auth/me` on app boot.
-- [ ] Redirect protected actions to sign-in.
-- [ ] Show auth error states clearly.
+- [x] Add sign-in page with GitHub and Google buttons.
+- [x] Add authenticated shell with user avatar/name and logout.
+- [x] Add unauthenticated shell for public pages.
+- [x] Fetch `GET /auth/me` on app boot.
+- [x] Redirect protected actions to sign-in.
+- [x] Show auth error states clearly.
 
 ## 6. Frontend Pages
 
-- [ ] Dashboard: remove accidental battle creation side effect.
-- [ ] Dashboard: show health, recent battles, recent simulations, team count, and leaderboard preview.
-- [ ] Teams: create, list, preview parsed paste, delete with confirmation, handle auth ownership.
-- [ ] Battle create: model select, format select, optional team select, validated usernames.
-- [ ] Battle detail: polling cleanup, WebSocket reconnect/close/error states, replay link.
-- [ ] Simulations: mode-specific forms, model multiselect, team selectors where supported, result tables.
-- [ ] Leaderboard: format selector, loading/error/empty states, rating formatting.
-- [ ] Replays: lookup by ID, event timeline, raw log tab if backend exposes raw log.
+- [x] Dashboard: remove accidental battle creation side effect.
+- [x] Dashboard: show health, recent battles, recent simulations, team count, and leaderboard preview.
+- [x] Teams: create, list, preview parsed paste, delete with confirmation, handle auth ownership.
+- [x] Battle create: model select, format select, optional team select, validated usernames.
+- [x] Battle detail: polling cleanup, WebSocket reconnect/close/error states, replay link.
+- [x] Simulations: mode-specific forms, model multiselect, team selectors where supported, result tables.
+- [x] Leaderboard: format selector, loading/error/empty states, rating formatting.
+- [x] Replays: lookup by ID, event timeline, raw log tab if backend exposes raw log.
 
 ## 7. Rich Battle Viewer
 
-- [ ] Use a custom first-party spectator viewer as the main UX.
+- [x] Use a custom first-party spectator viewer as the main UX.
 - [ ] Keep Showdown client as fallback/debug view, not as the only UI.
-- [ ] Render battlefield, player/model panels, active Pokémon slots, HP bars, status badges, turn banner, and event narration.
+- [x] Render battlefield, player/model panels, active Pokémon slots, HP bars, status badges, turn banner, and event narration.
 - [ ] Use Showdown sprite assets or URLs when available; do not create/maintain a custom sprite database.
-- [ ] Gracefully fall back to initials/type badges when sprite URL cannot be resolved.
-- [ ] Reuse viewer for live battles and replays.
+- [x] Gracefully fall back to initials/type badges when sprite URL cannot be resolved.
+- [x] Reuse viewer for live battles and replays.
 
 ## 8. Deployment And CI
 
@@ -107,7 +107,7 @@ Legend: `[ ]` not started, `[~]` in progress, `[x]` done, `[!]` blocked or defer
 ## 9. Verification
 
 - [ ] Run Python lint/typecheck/tests or document failures.
-- [ ] Run frontend TypeScript build.
+- [x] Run frontend TypeScript build.
 - [ ] Run Docker build smoke checks where feasible.
 - [ ] Manually verify local API health, auth stubs/config behavior, dashboard load, team flow, battle create/detail, replay view.
 - [ ] Update this checklist before final PR.
