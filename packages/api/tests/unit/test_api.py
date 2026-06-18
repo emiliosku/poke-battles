@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 import pokeapi.settings as settings_module
 from pokeapi.auth import create_session
 from pokeapi.db import session_scope
-from pokeapi.db.models import User
+from pokeapi.db.models import Battle, User
 from pokeapi.main import create_app
 
 
@@ -112,6 +112,45 @@ class TestBattles:
         body = r.json()
         assert body["status"] == "queued"
         assert body["format"] == "gen9randombattle"
+
+
+class TestPracticeBattles:
+    def test_natdex_doubles_ubers_requires_both_teams(self, authed_client: TestClient) -> None:
+        r = authed_client.post(
+            "/practice/battles",
+            json={
+                "format": "gen9nationaldexdoublesubers",
+                "player_username": "alice",
+                "ai_username": "bot",
+                "ai_model": "random",
+            },
+        )
+
+        assert r.status_code == 400
+        assert "requires both teams" in r.json()["detail"]
+
+    def test_missing_pending_action_returns_conflict(self, authed_client: TestClient) -> None:
+        factory = authed_client.app.state.session_factory
+        with session_scope(factory) as session:
+            session.add(
+                Battle(
+                    id="battle-practice-action",
+                    format="gen9randombattle",
+                    status="running",
+                    owner_id="github:u1",
+                    player1_username="alice",
+                    player2_username="bot",
+                    model1="human",
+                    model2="random",
+                )
+            )
+
+        r = authed_client.post(
+            "/practice/battles/battle-practice-action/actions",
+            json={"request_id": "missing", "option_id": "0"},
+        )
+
+        assert r.status_code == 409
 
 
 class TestSimulations:
