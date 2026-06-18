@@ -23,7 +23,7 @@ from pokeengine.player import AgentPlayer
 from pokeengine.runner import (
     ShowdownHandle,
     ensure_showdown,
-    showdown_server,
+    start_showdown,
 )
 
 if TYPE_CHECKING:
@@ -131,7 +131,7 @@ class BattleService:
     def start(self) -> ShowdownHandle:
         ensure_showdown(self.showdown_dir)
         if self.handle is None:
-            self.handle = showdown_server(self.showdown_dir, port=self.showdown_port).__enter__()
+            self.handle = start_showdown(self.showdown_dir, port=self.showdown_port)
         return self.handle
 
     def stop(self) -> None:
