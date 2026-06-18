@@ -96,17 +96,17 @@ Legend: `[ ]` not started, `[~]` in progress, `[x]` done, `[!]` blocked or defer
 
 ## 8. Deployment And CI
 
-- [ ] Add frontend build to CI: `npm ci` and `npm run build` in `web/`.
-- [ ] Update Docker build workflow to build/push `poke-battles-web` for `linux/arm64`.
-- [ ] Ensure API Docker image includes `models.yaml`.
-- [ ] Avoid multiple uvicorn workers until queue/WebSocket state is externalized.
-- [ ] Keep Postgres URL sync-compatible with current SQLAlchemy setup.
+- [x] Add frontend build to CI: `npm ci` and `npm run build` in `web/`.
+- [x] Update Docker build workflow to build/push `poke-battles-web` for `linux/arm64`.
+- [x] Ensure API Docker image includes `models.yaml`.
+- [x] Avoid multiple uvicorn workers until queue/WebSocket state is externalized.
+- [x] Keep Postgres URL sync-compatible with current SQLAlchemy setup.
 - [ ] Add OCI infra plan: `poke-battles-web` service and Caddy route for `/poke-battles/*` while preserving `/poke-battles/api/*`, `/poke-battles/ws/*`, and `/poke-battles/health`.
 - [ ] Account for existing uncommitted OCI infra changes before editing that repo.
 
 ## 9. Verification
 
-- [ ] Run Python lint/typecheck/tests or document failures.
+- [!] Run Python lint/typecheck/tests or document failures. Local env has no `uv`, no `.venv`, and no `pytest`; `python3 -m compileall packages/api/src/pokeapi` passed.
 - [x] Run frontend TypeScript build.
 - [ ] Run Docker build smoke checks where feasible.
 - [ ] Manually verify local API health, auth stubs/config behavior, dashboard load, team flow, battle create/detail, replay view.

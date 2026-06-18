@@ -2,6 +2,7 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 COPY web/ /app/
+ENV VITE_BASE_PATH=/poke-battles/
 RUN npm ci --no-audit --no-fund && \
     npm run build
 

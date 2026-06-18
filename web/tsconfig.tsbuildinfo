@@ -1,1 +1,1 @@
-{"root":["./src/App.tsx","./src/api.ts","./src/main.tsx","./src/pages/Battle.tsx","./src/pages/Dashboard.tsx","./src/pages/Leaderboard.tsx","./src/pages/Replays.tsx","./src/pages/Simulations.tsx","./src/pages/Teams.tsx"],"version":"5.7.3"}
+{"root":["./src/App.tsx","./src/api.ts","./src/auth.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/pages/Battle.tsx","./src/pages/Dashboard.tsx","./src/pages/Leaderboard.tsx","./src/pages/Replays.tsx","./src/pages/SignIn.tsx","./src/pages/Simulations.tsx","./src/pages/Teams.tsx"],"version":"5.7.3"}
