@@ -15,12 +15,9 @@ from pokeapi.orchestrator import Orchestrator
 from pokeapi.routes import battles, health, leaderboard, replays, simulations, teams, ws
 from pokeapi.routes.ws import manager as ws_manager
 from pokeapi.schemas import HealthResponse
-from pokeapi.settings import get_settings
-from pathlib import Path
-
-from pokellm.config import find_models_yaml, load_models_yaml
-
 from pokeapi.services import BattleService
+from pokeapi.settings import get_settings
+from pokellm.config import find_models_yaml, load_models_yaml
 
 logger = logging.getLogger(__name__)
 

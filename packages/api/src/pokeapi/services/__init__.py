@@ -27,8 +27,8 @@ from pokeengine.runner import (
 )
 
 if TYPE_CHECKING:
-    from pokellm.config import AgentConfig
     from pokeapi.orchestrator import BattleJob
+    from pokellm.config import AgentConfig
 
 from pokeapi.orchestrator import JobResult
 
@@ -206,7 +206,6 @@ class BattleService:
             "events_count": len(a.events_for(bid)),
         }
 
-
     async def run_simulation(
         self,
         *,
@@ -257,7 +256,7 @@ class BattleService:
         if mode == "round_robin":
             results_map: dict[str, dict[str, Any]] = {}
             for i, m1 in enumerate(models):
-                for m2 in models[i + 1:]:
+                for m2 in models[i + 1 :]:
                     m1_wins = 0
                     m2_wins = 0
                     for _ in range(n_battles):
@@ -290,14 +289,6 @@ class BattleService:
             }
 
         if mode == "ladder":
-            from pokeapi.db.models import Rating
-            from pokeapi.db import make_session_factory, make_engine
-            from pokeapi.settings import get_settings
-
-            settings = get_settings()
-            engine = make_engine(settings.database_url)
-            factory = make_session_factory(engine)
-
             entries: dict[str, dict[str, Any]] = {
                 m: {"wins": 0, "losses": 0, "draws": 0, "rating": 1500, "rd": 350, "vol": 0.06}
                 for m in models

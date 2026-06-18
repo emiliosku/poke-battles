@@ -9,12 +9,11 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, status
 
-from pokecore.elo import GlickoRating, rate_pair
-
 from pokeapi.db import session_scope
 from pokeapi.db.models import Battle, Rating, Replay
 from pokeapi.orchestrator import BattleJob, JobResult
 from pokeapi.schemas import BattleCreate, BattleResponse
+from pokecore.elo import GlickoRating, rate_pair
 
 logger = logging.getLogger(__name__)
 

@@ -65,7 +65,7 @@ async def create_simulation(body: SimulationCreate, request: Request) -> Simulat
                 if s is not None:
                     s.status = "failed"
 
-    asyncio.create_task(_run())
+    asyncio.create_task(_run())  # noqa: RUF006
     return _to_response(sim)
 
 
