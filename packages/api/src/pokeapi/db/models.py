@@ -91,6 +91,7 @@ class Simulation(Base):
     __tablename__ = "simulations"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     mode: Mapped[str] = mapped_column(String(32))
+    format: Mapped[str] = mapped_column(String(64), default="gen9randombattle")
     team_a_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))
     team_b_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))
     models_json: Mapped[list[str] | None] = mapped_column(JSON)
@@ -110,6 +111,7 @@ class Replay(Base):
     __tablename__ = "replays"
     battle_id: Mapped[str] = mapped_column(ForeignKey("battles.id"), primary_key=True)
     events: Mapped[list[dict[str, object]]] = mapped_column(JSON)
+    raw_log: Mapped[str | None] = mapped_column(Text, nullable=True)
     summary_json: Mapped[dict[str, object] | None] = mapped_column(JSON)
 
 

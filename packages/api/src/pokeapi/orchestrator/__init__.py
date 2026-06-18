@@ -28,15 +28,18 @@ class BattleJob:
     player2: str = ""
     model1: str = ""
     model2: str = ""
-    on_complete: Callable[[BattleJob, str | None, int], Awaitable[None]] | None = None
+    on_complete: Callable[[BattleJob, JobResult], Awaitable[None]] | None = None
 
 
 @dataclass
 class JobResult:
     job_id: str
-    winner: str | None
-    turns: int
-    duration_s: float
+    battle_id: str | None = None
+    winner: str | None = None
+    turns: int = 0
+    duration_s: float = 0.0
+    events: tuple | list = ()
+    raw_log: str = ""
 
 
 class Orchestrator:
@@ -98,7 +101,7 @@ class Orchestrator:
                 self.results[job.id] = result
                 if job.on_complete is not None:
                     try:
-                        await job.on_complete(job, result.winner, result.turns)
+                        await job.on_complete(job, result)
                     except Exception:
                         logger.exception("on_complete callback failed")
             except Exception as exc:

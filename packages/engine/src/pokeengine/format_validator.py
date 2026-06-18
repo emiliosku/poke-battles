@@ -13,6 +13,12 @@ from collections import Counter
 from collections.abc import Iterable
 
 from pokecore import Format, Team
+from pokeengine.smogon_data import (
+    valid_ability,
+    valid_item,
+    valid_move,
+    valid_species,
+)
 
 MAX_MOVES = 4
 MIN_MOVES = 1
@@ -55,6 +61,15 @@ def validate_team(
             )
         if not fmt.is_species_legal(pkmn.species_id):
             errors.append(f"{pkmn.species_id}: not legal in {fmt.id}")
+        if not valid_species(pkmn.species_id):
+            errors.append(f"{pkmn.species_id}: unknown species")
+        if pkmn.item and not valid_item(pkmn.item):
+            errors.append(f"{pkmn.species_id}: unknown item {pkmn.item}")
+        if pkmn.ability and not valid_ability(pkmn.ability):
+            errors.append(f"{pkmn.species_id}: unknown ability {pkmn.ability}")
+        for move in pkmn.moves:
+            if not valid_move(move.name):
+                errors.append(f"{pkmn.species_id}: unknown move {move.name}")
     return errors
 
 

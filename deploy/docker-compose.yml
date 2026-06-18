@@ -57,6 +57,22 @@ services:
       timeout: 5s
       retries: 10
 
+  showdown-client:
+    image: poke-battles/showdown-client:latest
+    build:
+      context: ..
+      dockerfile: showdown-client/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8081:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    depends_on:
+      - api
+
   showdown-pool:
     image: poke-battles/showdown:latest
     build:

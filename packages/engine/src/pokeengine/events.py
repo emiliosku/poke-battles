@@ -70,3 +70,4 @@ class BattleResult:
     duration_s: float
     format: str
     events: tuple[Event, ...]
+    raw_log: str = ""

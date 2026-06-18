@@ -41,16 +41,27 @@ class AgentPlayer(Player):
     choose_move_for_turn:
         Async callable that returns a :class:`BattleOrder`. Receives
         ``(self, battle)``.
+    on_event:
+        Optional async callback called for each parsed event during a battle.
+        Receives ``(battle_tag, event)``.
+    on_raw_line:
+        Optional async callback called for each raw protocol line.
+        Receives ``(battle_tag, line)``.
     """
 
     def __init__(
         self,
         choose_move_for_turn: MoveChooser | None = None,
+        on_event: Callable[[str, Event], Awaitable[None]] | None = None,
+        on_raw_line: Callable[[str, str], Awaitable[None]] | None = None,
         *args: Any,
         **kwargs: Any,
     ) -> None:
         self._choose_move_for_turn: MoveChooser = choose_move_for_turn or _default_random_choice
+        self._on_event = on_event
+        self._on_raw_line = on_raw_line
         self._events: dict[str, list[Event]] = {}
+        self._raw_logs: dict[str, list[str]] = {}
         self._battle_starts: dict[str, float] = {}
         self._battle_winners: dict[str, str | None] = {}
         self._battle_turns: dict[str, int] = {}
@@ -79,6 +90,9 @@ class AgentPlayer(Player):
     def events_for(self, battle_id: str) -> list[Event]:
         return list(self._events.get(battle_id, []))
 
+    def raw_log_for(self, battle_id: str) -> str:
+        return "\n".join(self._raw_logs.get(battle_id, []))
+
     def result_for(self, battle_id: str) -> BattleResult | None:
         if battle_id not in self._battle_winners:
             return None
@@ -89,11 +103,13 @@ class AgentPlayer(Player):
             duration_s=time.monotonic() - start if start else 0.0,
             format=self._battle_formats.get(battle_id, "unknown"),
             events=tuple(self._events.get(battle_id, [])),
+            raw_log=self.raw_log_for(battle_id),
         )
 
     def _battle_start_callback(self, battle: AbstractBattle) -> None:
         bid = battle.battle_tag
         self._events[bid] = []
+        self._raw_logs[bid] = []
         self._battle_starts[bid] = time.monotonic()
         self._battle_turns[bid] = 0
         self._battle_formats[bid] = str(battle.format) if battle.format is not None else "unknown"
@@ -122,13 +138,25 @@ class AgentPlayer(Player):
             except Exception:
                 battle = None
             if battle is not None:
+                bt = battle.battle_tag
                 for parts in split_messages[1:]:
                     if not parts or len(parts) < 2:
                         continue
                     line = "|" + "|".join(parts[1:])
+                    self._raw_logs.setdefault(bt, []).append(line)
+                    if self._on_raw_line is not None:
+                        try:
+                            await self._on_raw_line(bt, line)
+                        except Exception:
+                            pass
                     ev = parse_line(line, turn=battle.turn)
                     if ev is not None:
-                        self._events.setdefault(battle.battle_tag, []).append(ev)
+                        self._events.setdefault(bt, []).append(ev)
+                        if self._on_event is not None:
+                            try:
+                                await self._on_event(bt, ev)
+                            except Exception:
+                                pass
         await super()._handle_battle_message(split_messages)
 
     def choose_move(self, battle: AbstractBattle) -> Awaitable[BattleOrder]:

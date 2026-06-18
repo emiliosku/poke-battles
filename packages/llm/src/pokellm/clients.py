@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -23,6 +24,65 @@ from pokellm.config import AgentConfig
 from pokellm.tools import TOOLS
 
 logger = logging.getLogger(__name__)
+
+try:
+    import langfuse as _langfuse
+
+    _HAS_LANGFUSE = True
+except ImportError:
+    _HAS_LANGFUSE = False
+
+_langfuse_client: Any = None
+
+
+def _get_langfuse() -> Any:
+    global _langfuse_client
+    if _langfuse_client is None and _HAS_LANGFUSE:
+        pk = os.environ.get("LANGFUSE_PUBLIC_KEY")
+        sk = os.environ.get("LANGFUSE_SECRET_KEY")
+        host = os.environ.get("LANGFUSE_HOST", "https://cloud.langfuse.com")
+        if pk and sk:
+            try:
+                _langfuse_client = _langfuse.Langfuse(
+                    public_key=pk, secret_key=sk, host=host
+                )
+                logger.info("Langfuse client initialized")
+            except Exception as exc:
+                logger.warning("Failed to init Langfuse: %s", exc)
+    return _langfuse_client
+
+
+def _default_on_response(cfg: AgentConfig) -> Callable[[dict[str, Any]], None]:
+    def _cb(info: dict[str, Any]) -> None:
+        lf = _get_langfuse()
+        if lf is None:
+            return
+        try:
+            trace = lf.trace(
+                name="llm_decision",
+                input=info,
+                metadata={"model": cfg.model_id, "provider": cfg.provider},
+            )
+            trace.end(output=info)
+        except Exception:
+            pass
+
+    return _cb
+
+
+def _default_on_tool_call() -> Callable[[Any], None]:
+    def _cb(record: Any) -> None:
+        lf = _get_langfuse()
+        if lf is None:
+            return
+        try:
+            span = lf.span(name="tool_call")
+            span.update(input={"name": getattr(record, "name", ""), "args": getattr(record, "arguments", {})})
+            span.end(output=getattr(record, "result", None))
+        except Exception:
+            pass
+
+    return _cb
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,8 +122,8 @@ class LLMClient:
         on_response: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         self.config = config
-        self._on_tool_call = on_tool_call
-        self._on_response = on_response
+        self._on_tool_call = on_tool_call or _default_on_tool_call()
+        self._on_response = on_response or _default_on_response(config)
         self._tool_history: list[ToolCallRecord] = []
 
     @property

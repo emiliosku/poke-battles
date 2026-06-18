@@ -63,7 +63,8 @@ class BattleResponse(BaseModel):
 
 
 class SimulationCreate(BaseModel):
-    mode: str = Field(description="'round_robin' or 'team_vs_team'")
+    mode: str = Field(description="'round_robin', 'team_vs_team', or 'ladder'")
+    format: str = "gen9randombattle"
     team_a_id: int | None = None
     team_b_id: int | None = None
     models: list[str] = Field(default_factory=list)

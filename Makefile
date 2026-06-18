@@ -14,7 +14,12 @@ help:
 	@echo "  clean       - Remove build artifacts"
 
 install:
-	uv pip install -e packages/core -e "packages/engine[dev]"
+	uv pip install \
+		-e packages/core \
+		-e "packages/engine[dev]" \
+		-e packages/llm \
+		-e packages/api \
+		-e pokecli
 
 sync:
 	uv sync
@@ -26,13 +31,21 @@ format:
 	uv run ruff format .
 
 typecheck:
-	uv run mypy packages/core/src packages/engine/src tests
+	uv run mypy \
+		packages/core/src \
+		packages/engine/src \
+		packages/llm/src \
+		packages/api/src \
+		tests
 
 test:
 	uv run pytest
 
 test-cov:
-	uv run pytest --cov=pokecore --cov=pokeengine --cov-report=term-missing --cov-report=html
+	uv run pytest \
+		--cov=pokecore --cov=pokeengine \
+		--cov=pokellm --cov=pokeapi \
+		--cov-report=term-missing --cov-report=html
 
 ci: lint typecheck test-cov
 

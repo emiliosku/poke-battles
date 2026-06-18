@@ -13,8 +13,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from pokeapi.db import init_db, make_engine, make_session_factory
 from pokeapi.orchestrator import Orchestrator
 from pokeapi.routes import battles, health, leaderboard, replays, simulations, teams, ws
+from pokeapi.routes.ws import manager as ws_manager
 from pokeapi.schemas import HealthResponse
 from pokeapi.settings import get_settings
+from pathlib import Path
+
+from pokellm.config import find_models_yaml, load_models_yaml
+
+from pokeapi.services import BattleService
 
 logger = logging.getLogger(__name__)
 
@@ -26,17 +32,32 @@ async def lifespan(app: FastAPI) -> Any:
     engine = make_engine(settings.database_url)
     init_db(engine)
     factory = make_session_factory(engine)
+    models_yaml = find_models_yaml()
+    if models_yaml.exists():
+        models = load_models_yaml(models_yaml)
+        logger.info("Loaded %d models from %s", len(models), models_yaml)
+    else:
+        models = {}
+        logger.warning("No models.yaml found; LLM agents will fall back to random")
+    bservice = BattleService(
+        showdown_dir=settings.showdown_server_dir,
+        connection_manager=ws_manager,
+        models=models,
+    )
     orchestrator = Orchestrator(max_concurrent=settings.max_concurrent_showdown)
+    orchestrator.set_runner(bservice.run_job)
     await orchestrator.start()
     app.state.engine = engine
     app.state.session_factory = factory
     app.state.orchestrator = orchestrator
+    app.state.bservice = bservice
     app.state.start_time = time.monotonic()
     logger.info("pokeapi ready on %s", settings.database_url)
     try:
         yield
     finally:
         await orchestrator.stop()
+        bservice.stop()
         engine.dispose()
 
 

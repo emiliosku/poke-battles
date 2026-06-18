@@ -28,6 +28,9 @@ from pokeengine.runner import (
 
 if TYPE_CHECKING:
     from pokellm.config import AgentConfig
+    from pokeapi.orchestrator import BattleJob
+
+from pokeapi.orchestrator import JobResult
 
 logger = logging.getLogger(__name__)
 
@@ -117,11 +120,13 @@ class BattleService:
         showdown_dir: str = "server",
         showdown_port: int | None = None,
         models: dict[str, AgentConfig] | None = None,
+        connection_manager: Any = None,
     ) -> None:
         self.showdown_dir = showdown_dir
         self.showdown_port = showdown_port or _find_showdown_free_port()
         self.handle: ShowdownHandle | None = None
         self._models: dict[str, AgentConfig] = models or {}
+        self._manager = connection_manager
 
     def start(self) -> ShowdownHandle:
         ensure_showdown(self.showdown_dir)
@@ -154,12 +159,23 @@ class BattleService:
         port = self.handle.port
         server = _server_config_for_port(port)
         suffix = _random_suffix()
+
+        async def _broadcast_event(bt: str, ev: Any) -> None:
+            if self._manager is not None:
+                await self._manager.broadcast(bt, ev.to_dict())
+
+        async def _broadcast_raw(bt: str, line: str) -> None:
+            if self._manager is not None:
+                await self._manager.broadcast_raw(bt, line)
+
         a = AgentPlayer(
             account_configuration=AccountConfiguration(f"{player1}-{suffix}", None),
             server_configuration=server,
             battle_format=battle_format,
             max_concurrent_battles=1,
             choose_move_for_turn=self.chooser_for(model1),
+            on_event=_broadcast_event,
+            on_raw_line=_broadcast_raw,
         )
         b = AgentPlayer(
             account_configuration=AccountConfiguration(f"{player2}-{suffix}", None),
@@ -167,6 +183,8 @@ class BattleService:
             battle_format=battle_format,
             max_concurrent_battles=1,
             choose_move_for_turn=self.chooser_for(model2),
+            on_event=_broadcast_event,
+            on_raw_line=_broadcast_raw,
         )
         t0 = time.monotonic()
         try:
@@ -183,8 +201,170 @@ class BattleService:
             "turns": a._battle_turns.get(bid, 0),
             "duration_s": duration,
             "format": battle_format,
+            "events": a.events_for(bid),
+            "raw_log": a.raw_log_for(bid),
             "events_count": len(a.events_for(bid)),
         }
+
+
+    async def run_simulation(
+        self,
+        *,
+        mode: str,
+        battle_format: str,
+        team_a_id: int | None = None,
+        team_b_id: int | None = None,
+        models: list[str] | None = None,
+        n_battles: int = 20,
+    ) -> dict[str, Any]:
+        """Run a simulation and return aggregate results."""
+        models = models or ["random"]
+        wins = 0
+        losses = 0
+        draws = 0
+
+        if mode == "team_vs_team":
+            if not models:
+                models = ["random", "random"]
+            model1 = models[0] if len(models) > 0 else "random"
+            model2 = models[1] if len(models) > 1 else "random"
+            for _ in range(n_battles):
+                result = await self.run_battle(
+                    battle_format=battle_format,
+                    player1=f"sim-a-{_random_suffix()}",
+                    player2=f"sim-b-{_random_suffix()}",
+                    model1=model1,
+                    model2=model2,
+                )
+                if "error" in result:
+                    draws += 1
+                elif result.get("winner", "").startswith("sim-a"):
+                    wins += 1
+                elif result.get("winner", "").startswith("sim-b"):
+                    losses += 1
+                else:
+                    draws += 1
+            total = wins + losses + draws
+            return {
+                "mode": mode,
+                "wins": wins,
+                "losses": losses,
+                "draws": draws,
+                "n_battles": n_battles,
+                "win_rate": wins / total if total > 0 else 0.0,
+            }
+
+        if mode == "round_robin":
+            results_map: dict[str, dict[str, Any]] = {}
+            for i, m1 in enumerate(models):
+                for m2 in models[i + 1:]:
+                    m1_wins = 0
+                    m2_wins = 0
+                    for _ in range(n_battles):
+                        result = await self.run_battle(
+                            battle_format=battle_format,
+                            player1=f"rr-{m1}-{_random_suffix()}",
+                            player2=f"rr-{m2}-{_random_suffix()}",
+                            model1=m1,
+                            model2=m2,
+                        )
+                        if "error" in result:
+                            draws += 1
+                        elif result.get("winner", "").startswith(f"rr-{m1}"):
+                            m1_wins += 1
+                        elif result.get("winner", "").startswith(f"rr-{m2}"):
+                            m2_wins += 1
+                        else:
+                            draws += 1
+                    results_map.setdefault(m1, {"wins": 0, "losses": 0})
+                    results_map.setdefault(m2, {"wins": 0, "losses": 0})
+                    results_map[m1]["wins"] += m1_wins
+                    results_map[m1]["losses"] += m2_wins
+                    results_map[m2]["wins"] += m2_wins
+                    results_map[m2]["losses"] += m1_wins
+            return {
+                "mode": mode,
+                "results_map": results_map,
+                "draws": draws,
+                "n_battles": n_battles * len(models) * (len(models) - 1) // 2,
+            }
+
+        if mode == "ladder":
+            from pokeapi.db.models import Rating
+            from pokeapi.db import make_session_factory, make_engine
+            from pokeapi.settings import get_settings
+
+            settings = get_settings()
+            engine = make_engine(settings.database_url)
+            factory = make_session_factory(engine)
+
+            entries: dict[str, dict[str, Any]] = {
+                m: {"wins": 0, "losses": 0, "draws": 0, "rating": 1500, "rd": 350, "vol": 0.06}
+                for m in models
+            }
+            for _ in range(n_battles):
+                import random as _random
+
+                m1, m2 = _random.sample(models, 2)
+                result = await self.run_battle(
+                    battle_format=battle_format,
+                    player1=f"ladder-{m1}-{_random_suffix()}",
+                    player2=f"ladder-{m2}-{_random_suffix()}",
+                    model1=m1,
+                    model2=m2,
+                )
+                if "error" in result:
+                    entries[m1]["draws"] += 1
+                    entries[m2]["draws"] += 1
+                else:
+                    w = result.get("winner", "")
+                    if w.startswith(f"ladder-{m1}"):
+                        entries[m1]["wins"] += 1
+                        entries[m2]["losses"] += 1
+                    elif w.startswith(f"ladder-{m2}"):
+                        entries[m2]["wins"] += 1
+                        entries[m1]["losses"] += 1
+                    else:
+                        entries[m1]["draws"] += 1
+                        entries[m2]["draws"] += 1
+            return {
+                "mode": mode,
+                "entries": entries,
+                "n_battles": n_battles,
+            }
+
+        return {"mode": mode, "error": f"Unknown mode: {mode}"}
+
+    async def run_job(self, job: BattleJob) -> JobResult:
+        """Bridge from orchestrator BattleJob to BattleService.run_battle."""
+        try:
+            result = await self.run_battle(
+                battle_format=job.format,
+                player1=job.player1,
+                player2=job.player2,
+                model1=job.model1,
+                model2=job.model2,
+            )
+            if "error" in result:
+                return JobResult(
+                    job_id=job.id,
+                    battle_id=result.get("battle_id"),
+                    winner=None,
+                    turns=result.get("turns", 0),
+                    duration_s=result.get("duration_s", 0.0),
+                )
+            return JobResult(
+                job_id=job.id,
+                battle_id=result.get("battle_id"),
+                winner=result.get("winner"),
+                turns=result.get("turns", 0),
+                duration_s=result.get("duration_s", 0.0),
+                events=result.get("events", ()),
+                raw_log=result.get("raw_log", ""),
+            )
+        except Exception as exc:
+            logger.exception("run_job failed: %s", exc)
+            return JobResult(job_id=job.id, winner=None, turns=0, duration_s=0.0)
 
 
 __all__ = ["BattleService", "_random_chooser", "build_chooser"]
