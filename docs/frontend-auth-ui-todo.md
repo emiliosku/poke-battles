@@ -10,7 +10,7 @@ Legend: `[ ]` not started, `[~]` in progress, `[x]` done, `[!]` blocked or defer
 - [x] Commit regularly after coherent, verified slices.
 - [ ] Push branch to `origin`.
 - [ ] Create GitHub PR for `poke-battles` branch.
-- [ ] If OCI infra changes are needed, create a separate branch/PR in `oci-infra` and avoid mixing app code with infra code.
+- [x] If OCI infra changes are needed, create a separate branch/PR in `oci-infra` and avoid mixing app code with infra code. Created `/tmp/opencode/oci-infra` branch `feat/poke-battles-web`.
 
 ## 1. Free Authentication Strategy
 
@@ -101,13 +101,13 @@ Legend: `[ ]` not started, `[~]` in progress, `[x]` done, `[!]` blocked or defer
 - [x] Ensure API Docker image includes `models.yaml`.
 - [x] Avoid multiple uvicorn workers until queue/WebSocket state is externalized.
 - [x] Keep Postgres URL sync-compatible with current SQLAlchemy setup.
-- [ ] Add OCI infra plan: `poke-battles-web` service and Caddy route for `/poke-battles/*` while preserving `/poke-battles/api/*`, `/poke-battles/ws/*`, and `/poke-battles/health`.
-- [ ] Account for existing uncommitted OCI infra changes before editing that repo.
+- [x] Add OCI infra plan: `poke-battles-web` service and Caddy route for `/poke-battles/*` while preserving `/poke-battles/api/*`, `/poke-battles/ws/*`, and `/poke-battles/health`.
+- [x] Account for existing uncommitted OCI infra changes before editing that repo.
 
 ## 9. Verification
 
 - [!] Run Python lint/typecheck/tests or document failures. Local env has no `uv`, no `.venv`, and no `pytest`; `python3 -m compileall packages/api/src/pokeapi` passed.
 - [x] Run frontend TypeScript build.
-- [ ] Run Docker build smoke checks where feasible.
+- [!] Run Docker build smoke checks where feasible. Not run locally; Docker Compose config for infra clone requires gitignored `.env`.
 - [ ] Manually verify local API health, auth stubs/config behavior, dashboard load, team flow, battle create/detail, replay view.
 - [ ] Update this checklist before final PR.
