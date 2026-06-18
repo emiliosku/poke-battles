@@ -75,7 +75,13 @@ async def callback(
     if error:
         raise HTTPException(status_code=401, detail=error)
     stored_state = request.cookies.get("poke_battles_oauth_state")
-    if not code or not state or not stored_state or state != stored_state or not verify_state(state):
+    if (
+        not code
+        or not state
+        or not stored_state
+        or state != stored_state
+        or not verify_state(state)
+    ):
         raise HTTPException(status_code=401, detail="Invalid OAuth state")
 
     profile = await fetch_oauth_profile(provider, code, settings)

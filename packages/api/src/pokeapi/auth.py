@@ -142,7 +142,9 @@ async def fetch_oauth_profile(provider: Provider, code: str, settings: Settings)
         access_token = str(token_res.json().get("access_token", ""))
         if not access_token:
             raise HTTPException(status_code=401, detail="Google OAuth did not return a token")
-        user_res = await client.get(GOOGLE_USER_URL, headers={"Authorization": f"Bearer {access_token}"})
+        user_res = await client.get(
+            GOOGLE_USER_URL, headers={"Authorization": f"Bearer {access_token}"}
+        )
         user_res.raise_for_status()
     body = user_res.json()
     return {
@@ -208,7 +210,9 @@ def optional_current_user(request: Request) -> User | None:
 def require_current_user(request: Request) -> User:
     user = optional_current_user(request)
     if user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required"
+        )
     return user
 
 

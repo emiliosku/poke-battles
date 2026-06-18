@@ -113,7 +113,14 @@ def _move(args: list[str], turn: int) -> Event:
     raw = {"source": _pokemon_ref(args[0]), "move": args[1]}
     if len(args) > 2:
         raw["target"] = _pokemon_ref(args[2])
-    return _e(EventKind.MOVE, turn, source=args[0], target=args[2] if len(args) > 2 else None, detail=args[1], raw=raw)
+    return _e(
+        EventKind.MOVE,
+        turn,
+        source=args[0],
+        target=args[2] if len(args) > 2 else None,
+        detail=args[1],
+        raw=raw,
+    )
 
 
 def _switch(args: list[str], turn: int) -> Event:
@@ -178,7 +185,13 @@ def _damage(args: list[str], turn: int) -> Event:
 def _heal(args: list[str], turn: int) -> Event:
     if len(args) < 2:
         return _e(EventKind.MESSAGE, turn, detail="heal")
-    return _e(EventKind.HEAL, turn, target=args[0], detail=args[1], raw={"target": _pokemon_ref(args[0]), "hp": _hp(args[1])})
+    return _e(
+        EventKind.HEAL,
+        turn,
+        target=args[0],
+        detail=args[1],
+        raw={"target": _pokemon_ref(args[0]), "hp": _hp(args[1])},
+    )
 
 
 def _boost(args: list[str], turn: int) -> Event:
@@ -196,19 +209,37 @@ def _unboost(args: list[str], turn: int) -> Event:
 def _status(args: list[str], turn: int) -> Event:
     if len(args) < 2:
         return _e(EventKind.MESSAGE, turn, detail="status")
-    return _e(EventKind.STATUS, turn, target=args[0], detail=args[1], raw={"target": _pokemon_ref(args[0]), "status": args[1]})
+    return _e(
+        EventKind.STATUS,
+        turn,
+        target=args[0],
+        detail=args[1],
+        raw={"target": _pokemon_ref(args[0]), "status": args[1]},
+    )
 
 
 def _curestatus(args: list[str], turn: int) -> Event:
     if len(args) < 2:
         return _e(EventKind.MESSAGE, turn, detail="curestatus")
-    return _e(EventKind.CURESTATUS, turn, target=args[0], detail=args[1], raw={"target": _pokemon_ref(args[0]), "status": args[1]})
+    return _e(
+        EventKind.CURESTATUS,
+        turn,
+        target=args[0],
+        detail=args[1],
+        raw={"target": _pokemon_ref(args[0]), "status": args[1]},
+    )
 
 
 def _faint(args: list[str], turn: int) -> Event:
     if not args:
         return _e(EventKind.MESSAGE, turn, detail="faint")
-    return _e(EventKind.FAINT, turn, target=args[0], quantity=0, raw={"target": _pokemon_ref(args[0]), "hp": {"hp_percent": 0, "status": "fnt"}})
+    return _e(
+        EventKind.FAINT,
+        turn,
+        target=args[0],
+        quantity=0,
+        raw={"target": _pokemon_ref(args[0]), "hp": {"hp_percent": 0, "status": "fnt"}},
+    )
 
 
 def _weather(args: list[str], turn: int) -> Event:
