@@ -210,7 +210,6 @@ class BattleService:
             "events_count": len(a.events_for(bid)),
         }
 
-
     async def run_simulation(
         self,
         *,
@@ -265,7 +264,7 @@ class BattleService:
         if mode == "round_robin":
             results_map: dict[str, dict[str, Any]] = {}
             for i, m1 in enumerate(models):
-                for m2 in models[i + 1:]:
+                for m2 in models[i + 1 :]:
                     m1_wins = 0
                     m2_wins = 0
                     for _ in range(n_battles):

@@ -95,9 +95,9 @@ def get_species_data(server_dir: str = "server") -> dict[str, Any]:
 
 
 __all__ = [
-    "valid_species",
-    "valid_move",
+    "get_species_data",
     "valid_ability",
     "valid_item",
-    "get_species_data",
+    "valid_move",
+    "valid_species",
 ]

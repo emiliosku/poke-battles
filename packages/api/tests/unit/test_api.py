@@ -20,7 +20,7 @@ from pokeapi.main import create_app
 def client(tmp_path: Path) -> Iterator[TestClient]:
     db_path = tmp_path / "test.db"
     os.environ["DATABASE_URL"] = f"sqlite:///{db_path}"
-    os.environ["SESSION_SECRET"] = "test-session-secret"
+    os.environ["SESSION_SECRET"] = "test-session-secret"  # noqa: S105
     settings_module._settings = None
     app = create_app()
     with TestClient(app) as c:

@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -43,9 +42,7 @@ def _get_langfuse() -> Any:
         host = os.environ.get("LANGFUSE_HOST", "https://cloud.langfuse.com")
         if pk and sk:
             try:
-                _langfuse_client = _langfuse.Langfuse(
-                    public_key=pk, secret_key=sk, host=host
-                )
+                _langfuse_client = _langfuse.Langfuse(public_key=pk, secret_key=sk, host=host)
                 logger.info("Langfuse client initialized")
             except Exception as exc:
                 logger.warning("Failed to init Langfuse: %s", exc)
@@ -77,7 +74,12 @@ def _default_on_tool_call() -> Callable[[Any], None]:
             return
         try:
             span = lf.span(name="tool_call")
-            span.update(input={"name": getattr(record, "name", ""), "args": getattr(record, "arguments", {})})
+            span.update(
+                input={
+                    "name": getattr(record, "name", ""),
+                    "args": getattr(record, "arguments", {}),
+                }
+            )
             span.end(output=getattr(record, "result", None))
         except Exception:
             pass
