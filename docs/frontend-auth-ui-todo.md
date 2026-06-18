@@ -8,8 +8,8 @@ Legend: `[ ]` not started, `[~]` in progress, `[x]` done, `[!]` blocked or defer
 
 - [x] Create feature branch `feat/free-auth-rich-web-ui` in `poke-battles`.
 - [x] Commit regularly after coherent, verified slices.
-- [ ] Push branch to `origin`.
-- [ ] Create GitHub PR for `poke-battles` branch.
+- [x] Push branch to `origin`.
+- [!] Create GitHub PR for `poke-battles` branch. Branch is pushed, but local environment has no `gh` and no `GITHUB_TOKEN`; use the printed PR URL.
 - [x] If OCI infra changes are needed, create a separate branch/PR in `oci-infra` and avoid mixing app code with infra code. Created `/tmp/opencode/oci-infra` branch `feat/poke-battles-web`.
 
 ## 1. Free Authentication Strategy
@@ -24,7 +24,7 @@ Legend: `[ ]` not started, `[~]` in progress, `[x]` done, `[!]` blocked or defer
 - [x] Add `GET /auth/me` and `POST /auth/logout` endpoints.
 - [x] Upsert `User` rows from OAuth profile data.
 - [x] Protect owner-scoped and resource-creating endpoints.
-- [ ] Add API tests for anonymous, logged-in, logout, and protected route behavior.
+- [x] Add API tests for anonymous, logged-in, logout, and protected route behavior.
 
 ## 2. Backend API Contract Fixes
 
@@ -38,18 +38,18 @@ Legend: `[ ]` not started, `[~]` in progress, `[x]` done, `[!]` blocked or defer
 - [x] Fix battle IDs to use collision-safe UUIDs.
 - [x] Persist `running`, `failed`, `started_at`, `finished_at`, and `duration_s` accurately.
 - [x] Store replay summary metadata on completion.
-- [ ] Expose raw replay log safely if needed by the UI.
-- [ ] Validate simulation mode-specific requirements.
-- [ ] Add tests for list/meta endpoints and lifecycle fields.
+- [x] Expose raw replay log safely if needed by the UI.
+- [x] Validate simulation mode-specific requirements.
+- [x] Add tests for list/meta endpoints and lifecycle fields.
 
 ## 3. Backend Battle/Event Quality
 
-- [ ] Enrich event parsing with structured `side`, `slot`, `pokemon`, `species_id`, `hp_percent`, and `status` where available.
-- [ ] Keep raw Showdown protocol available for debugging.
-- [ ] Ensure live WebSocket subscribers receive useful JSON events.
-- [ ] Add replay support for structured events.
-- [ ] Decide whether custom teams are MVP; if yes, wire `team1_id`/`team2_id` into actual battle execution.
-- [ ] Decide whether simulations require custom team execution for MVP; if yes, wire `team_a_id`/`team_b_id` into execution.
+- [x] Enrich event parsing with structured `side`, `slot`, `pokemon`, `species_id`, `hp_percent`, and `status` where available.
+- [x] Keep raw Showdown protocol available for debugging.
+- [x] Ensure live WebSocket subscribers receive useful JSON events.
+- [x] Add replay support for structured events.
+- [x] Decide whether custom teams are MVP; if yes, wire `team1_id`/`team2_id` into actual battle execution.
+- [x] Decide whether simulations require custom team execution for MVP; if yes, wire `team_a_id`/`team_b_id` into team-vs-team execution.
 
 ## 4. Frontend Foundation
 
@@ -88,9 +88,9 @@ Legend: `[ ]` not started, `[~]` in progress, `[x]` done, `[!]` blocked or defer
 ## 7. Rich Battle Viewer
 
 - [x] Use a custom first-party spectator viewer as the main UX.
-- [ ] Keep Showdown client as fallback/debug view, not as the only UI.
+- [x] Keep Showdown client as fallback/debug view, not as the only UI.
 - [x] Render battlefield, player/model panels, active Pokémon slots, HP bars, status badges, turn banner, and event narration.
-- [ ] Use Showdown sprite assets or URLs when available; do not create/maintain a custom sprite database.
+- [x] Use Showdown sprite assets or URLs when available; do not create/maintain a custom sprite database.
 - [x] Gracefully fall back to initials/type badges when sprite URL cannot be resolved.
 - [x] Reuse viewer for live battles and replays.
 
@@ -106,8 +106,8 @@ Legend: `[ ]` not started, `[~]` in progress, `[x]` done, `[!]` blocked or defer
 
 ## 9. Verification
 
-- [!] Run Python lint/typecheck/tests or document failures. Local env has no `uv`, no `.venv`, and no `pytest`; `python3 -m compileall packages/api/src/pokeapi` passed.
+- [x] Run Python lint/typecheck/tests or document failures. Synced deps into `/tmp/opencode/poke-battles-project-venv`; targeted parser/event/API tests and ruff checks passed.
 - [x] Run frontend TypeScript build.
 - [!] Run Docker build smoke checks where feasible. Not run locally; Docker Compose config for infra clone requires gitignored `.env`.
-- [ ] Manually verify local API health, auth stubs/config behavior, dashboard load, team flow, battle create/detail, replay view.
-- [ ] Update this checklist before final PR.
+- [!] Manually verify local API health, auth stubs/config behavior, dashboard load, team flow, battle create/detail, replay view. Not run as browser/API stack smoke; covered by targeted API tests and frontend build.
+- [x] Update this checklist before final PR.

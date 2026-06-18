@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from pokeapi.auth import require_current_user
 from pokeapi.db import session_scope
-from pokeapi.db.models import Simulation, User
+from pokeapi.db.models import Simulation, Team, User
 from pokeapi.schemas import SimulationCreate, SimulationResponse
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,19 @@ async def create_simulation(
     factory = request.app.state.session_factory
     bservice = request.app.state.bservice
     sim_id = f"sim-{uuid.uuid4().hex[:8]}"
+    team_a_paste: str | None = None
+    team_b_paste: str | None = None
     with session_scope(factory) as session:
+        if body.team_a_id is not None:
+            team = session.get(Team, body.team_a_id)
+            if team is None or team.owner_id != user.id:
+                raise HTTPException(status_code=404, detail="Team A not found")
+            team_a_paste = team.paste
+        if body.team_b_id is not None:
+            team = session.get(Team, body.team_b_id)
+            if team is None or team.owner_id != user.id:
+                raise HTTPException(status_code=404, detail="Team B not found")
+            team_b_paste = team.paste
         sim = Simulation(
             id=sim_id,
             owner_id=user.id,
@@ -53,6 +65,8 @@ async def create_simulation(
                 battle_format=body.format,
                 team_a_id=body.team_a_id,
                 team_b_id=body.team_b_id,
+                team_a_paste=team_a_paste,
+                team_b_paste=team_b_paste,
                 models=body.models,
                 n_battles=body.n_battles,
             )
@@ -73,7 +87,11 @@ async def create_simulation(
                 if s is not None:
                     s.status = "failed"
 
-    asyncio.create_task(_run())
+    tasks = getattr(request.app.state, "simulation_tasks", set())
+    request.app.state.simulation_tasks = tasks
+    task = asyncio.create_task(_run())
+    tasks.add(task)
+    task.add_done_callback(tasks.discard)
     return _to_response(sim)
 
 

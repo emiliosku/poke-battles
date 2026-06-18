@@ -24,6 +24,7 @@ async def get_replay(battle_id: str, request: Request) -> ReplayResponse:
                 battle_id=battle.id,
                 format=battle.format,
                 events=[],
+                raw_log=None,
                 duration_s=None,
                 turns=battle.turns,
             )
@@ -34,6 +35,7 @@ async def get_replay(battle_id: str, request: Request) -> ReplayResponse:
             battle_id=replay.battle_id,
             format=str(summary.get("format", "unknown")),
             events=replay.events or [],
+            raw_log=replay.raw_log,
             duration_s=float(duration) if isinstance(duration, (int, float)) else None,
             turns=int(turns_val) if isinstance(turns_val, (int, float)) else None,
         )

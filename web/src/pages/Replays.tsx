@@ -3,12 +3,12 @@ import { useLocation } from "react-router-dom";
 import { api, type BattleEvent, type ReplayResponse } from "../api";
 
 function eventText(event: BattleEvent): string {
-  const subject = event.source || event.target || event.side || "Battle";
+  const subject = event.raw?.source?.pokemon || event.raw?.target?.pokemon || event.raw?.pokemon?.pokemon || event.source || event.target || event.side || "Battle";
   if (event.kind === "turn_start") return `Turn ${event.turn}`;
   if (event.kind === "move") return `${subject} used ${event.detail}`;
-  if (event.kind === "switch") return `${subject} switched (${event.detail || ""})`;
-  if (event.kind === "damage") return `${subject} took damage: ${event.detail}`;
-  if (event.kind === "heal") return `${subject} healed: ${event.detail}`;
+  if (event.kind === "switch") return `${subject} switched (${event.raw?.hp?.hp_text || event.detail || "ready"})`;
+  if (event.kind === "damage") return `${subject} took damage: ${event.raw?.hp?.hp_text || event.detail}`;
+  if (event.kind === "heal") return `${subject} healed: ${event.raw?.hp?.hp_text || event.detail}`;
   if (event.kind === "faint") return `${subject} fainted`;
   if (event.kind === "battle_end") return `Winner: ${event.detail}`;
   return [event.kind, subject, event.detail].filter(Boolean).join(" · ");
@@ -23,6 +23,7 @@ export default function Replays() {
   const [battleId, setBattleId] = useState(initialBattleId);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [view, setView] = useState<"timeline" | "raw">("timeline");
 
   const load = async (id = battleId) => {
     if (!id.trim()) return;
@@ -72,13 +73,23 @@ export default function Replays() {
             </div>
           </div>
           <div className="card stack">
-            <h2>Timeline</h2>
+            <div className="row" style={{ justifyContent: "space-between" }}>
+              <h2>{view === "timeline" ? "Timeline" : "Raw protocol"}</h2>
+              <div className="row">
+                <button className={`button ${view === "timeline" ? "" : "secondary"}`} type="button" onClick={() => setView("timeline")}>Timeline</button>
+                <button className={`button ${view === "raw" ? "" : "secondary"}`} type="button" onClick={() => setView("raw")}>Raw</button>
+              </div>
+            </div>
             <div className="event-log">
-              {replay.events.length === 0 && <p>No replay events recorded.</p>}
-              {replay.events.map((event, index) => (
+              {view === "timeline" && replay.events.length === 0 && <p>No replay events recorded.</p>}
+              {view === "timeline" && replay.events.map((event, index) => (
                 <div className="event-line" key={`${event.kind}-${index}`}>
                   <span className="badge">T{event.turn}</span> {eventText(event)}
                 </div>
+              ))}
+              {view === "raw" && !replay.raw_log && <p>No raw protocol stored for this replay.</p>}
+              {view === "raw" && replay.raw_log?.split("\n").map((line, index) => (
+                <div className="event-line" key={`${line}-${index}`}>{line}</div>
               ))}
             </div>
           </div>

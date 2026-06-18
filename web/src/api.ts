@@ -66,6 +66,7 @@ export interface ReplayResponse {
   battle_id: string;
   format: string;
   events: BattleEvent[];
+  raw_log: string | null;
   duration_s: number | null;
   turns: number | null;
 }
@@ -78,6 +79,27 @@ export interface BattleEvent {
   detail?: string;
   quantity?: number;
   source?: string;
+  raw?: {
+    source?: PokemonRef;
+    target?: PokemonRef;
+    pokemon?: PokemonRef;
+    hp?: {
+      hp_text?: string;
+      hp_current?: number;
+      hp_max?: number;
+      hp_percent?: number;
+      status?: string;
+    };
+    status?: string;
+    move?: string;
+  };
+}
+
+export interface PokemonRef {
+  side?: string;
+  slot?: string;
+  pokemon?: string;
+  species_id?: string;
 }
 
 export interface FormatOption {

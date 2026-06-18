@@ -49,6 +49,7 @@ def _e(
     detail: str | None = None,
     quantity: int | None = None,
     source: str | None = None,
+    raw: dict[str, Any] | None = None,
 ) -> Event:
     return Event(
         kind=kind,
@@ -58,23 +59,75 @@ def _e(
         detail=detail,
         quantity=quantity,
         source=source,
+        raw=raw or {},
     )
+
+
+def _species_id(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+def _pokemon_ref(raw: str) -> dict[str, str]:
+    match = _NICKNAME_POKEMON.match(raw)
+    if not match:
+        pokemon = raw.strip()
+        return {"pokemon": pokemon, "species_id": _species_id(pokemon)}
+    side = f"p{match.group(1)}"
+    slot = match.group(2) or "a"
+    pokemon = match.group(3).strip()
+    return {
+        "side": side,
+        "slot": slot,
+        "pokemon": pokemon,
+        "species_id": _species_id(pokemon),
+    }
+
+
+def _hp(raw: str) -> dict[str, int | str]:
+    m = _HP_FRACTION.match(raw) or _HP_PERCENT.match(raw)
+    out: dict[str, int | str] = {"hp_text": raw}
+    if not m:
+        if "fnt" in raw:
+            out["status"] = "fnt"
+            out["hp_percent"] = 0
+        return out
+    if "/" in raw:
+        num, denom = int(m.group(1)), int(m.group(2))
+        out["hp_current"] = num
+        out["hp_max"] = denom
+        out["hp_percent"] = int((num / denom) * 100) if denom else 0
+    else:
+        out["hp_percent"] = int(m.group(1))
+    status = m.group(3)
+    if status:
+        out["status"] = status
+    if "fnt" in raw:
+        out["status"] = "fnt"
+        out["hp_percent"] = 0
+    return out
 
 
 def _move(args: list[str], turn: int) -> Event:
     if len(args) < 2:
         return _e(EventKind.MESSAGE, turn, detail=" ".join(args))
-    return _e(EventKind.MOVE, turn, source=args[0], detail=args[1])
+    raw = {"source": _pokemon_ref(args[0]), "move": args[1]}
+    if len(args) > 2:
+        raw["target"] = _pokemon_ref(args[2])
+    return _e(EventKind.MOVE, turn, source=args[0], target=args[2] if len(args) > 2 else None, detail=args[1], raw=raw)
 
 
 def _switch(args: list[str], turn: int) -> Event:
     if not args:
         return _e(EventKind.MESSAGE, turn, detail="switch")
+    raw = {"pokemon": _pokemon_ref(args[0])}
+    if len(args) > 1:
+        raw["hp"] = _hp(args[1])
     return _e(
         EventKind.SWITCH,
         turn,
         side=args[0],
         detail=" ".join(args[1:]) if len(args) > 1 else None,
+        raw=raw,
     )
 
 
@@ -94,6 +147,7 @@ def _damage(args: list[str], turn: int) -> Event:
         return _e(EventKind.MESSAGE, turn, detail="damage")
     target = args[0]
     hp_str = args[1]
+    hp_data = _hp(hp_str)
     m = _HP_FRACTION.match(hp_str) or _HP_PERCENT.match(hp_str)
     fraction = 0.0
     if m:
@@ -109,6 +163,7 @@ def _damage(args: list[str], turn: int) -> Event:
             target=target,
             detail=hp_str,
             quantity=int(fraction * 100),
+            raw={"target": _pokemon_ref(target), "hp": hp_data},
         )
     return _e(
         EventKind.DAMAGE,
@@ -116,13 +171,14 @@ def _damage(args: list[str], turn: int) -> Event:
         target=target,
         detail=hp_str,
         quantity=int(fraction * 100),
+        raw={"target": _pokemon_ref(target), "hp": hp_data},
     )
 
 
 def _heal(args: list[str], turn: int) -> Event:
     if len(args) < 2:
         return _e(EventKind.MESSAGE, turn, detail="heal")
-    return _e(EventKind.HEAL, turn, target=args[0], detail=args[1])
+    return _e(EventKind.HEAL, turn, target=args[0], detail=args[1], raw={"target": _pokemon_ref(args[0]), "hp": _hp(args[1])})
 
 
 def _boost(args: list[str], turn: int) -> Event:
@@ -140,19 +196,19 @@ def _unboost(args: list[str], turn: int) -> Event:
 def _status(args: list[str], turn: int) -> Event:
     if len(args) < 2:
         return _e(EventKind.MESSAGE, turn, detail="status")
-    return _e(EventKind.STATUS, turn, target=args[0], detail=args[1])
+    return _e(EventKind.STATUS, turn, target=args[0], detail=args[1], raw={"target": _pokemon_ref(args[0]), "status": args[1]})
 
 
 def _curestatus(args: list[str], turn: int) -> Event:
     if len(args) < 2:
         return _e(EventKind.MESSAGE, turn, detail="curestatus")
-    return _e(EventKind.CURESTATUS, turn, target=args[0], detail=args[1])
+    return _e(EventKind.CURESTATUS, turn, target=args[0], detail=args[1], raw={"target": _pokemon_ref(args[0]), "status": args[1]})
 
 
 def _faint(args: list[str], turn: int) -> Event:
     if not args:
         return _e(EventKind.MESSAGE, turn, detail="faint")
-    return _e(EventKind.FAINT, turn, target=args[0])
+    return _e(EventKind.FAINT, turn, target=args[0], quantity=0, raw={"target": _pokemon_ref(args[0]), "hp": {"hp_percent": 0, "status": "fnt"}})
 
 
 def _weather(args: list[str], turn: int) -> Event:

@@ -6,18 +6,25 @@ import { useAuth } from "../auth";
 interface SideState {
   label: string;
   active: string;
+  speciesId: string;
   hp: number;
   status: string;
   lastMove: string;
 }
 
 const initialSides: [SideState, SideState] = [
-  { label: "Player 1", active: "Awaiting switch", hp: 100, status: "ready", lastMove: "" },
-  { label: "Player 2", active: "Awaiting switch", hp: 100, status: "ready", lastMove: "" },
+  { label: "Player 1", active: "Awaiting switch", speciesId: "", hp: 100, status: "ready", lastMove: "" },
+  { label: "Player 2", active: "Awaiting switch", speciesId: "", hp: 100, status: "ready", lastMove: "" },
 ];
 
 function sideIndex(raw?: string): 0 | 1 {
   return raw?.startsWith("p2") ? 1 : 0;
+}
+
+function eventSideIndex(event: BattleEvent): 0 | 1 {
+  const side = event.raw?.source?.side || event.raw?.target?.side || event.raw?.pokemon?.side;
+  if (side) return side === "p2" ? 1 : 0;
+  return sideIndex(event.source || event.target || event.side);
 }
 
 function displayPokemon(raw?: string): string {
@@ -29,40 +36,52 @@ function displayPokemon(raw?: string): string {
 function applyEvent(sides: [SideState, SideState], event: BattleEvent): [SideState, SideState] {
   const next: [SideState, SideState] = [{ ...sides[0] }, { ...sides[1] }];
   if (event.kind === "switch") {
-    const idx = sideIndex(event.side);
-    next[idx].active = displayPokemon(event.side);
-    next[idx].hp = 100;
-    next[idx].status = "active";
+    const idx = eventSideIndex(event);
+    next[idx].active = event.raw?.pokemon?.pokemon || displayPokemon(event.side);
+    next[idx].speciesId = event.raw?.pokemon?.species_id || next[idx].speciesId;
+    next[idx].hp = event.raw?.hp?.hp_percent ?? 100;
+    next[idx].status = event.raw?.hp?.status || "active";
   }
   if (event.kind === "move") {
-    const idx = sideIndex(event.source);
+    const idx = eventSideIndex(event);
     next[idx].lastMove = event.detail || "move";
   }
   if (event.kind === "damage" || event.kind === "heal") {
-    const idx = sideIndex(event.target);
-    next[idx].active = displayPokemon(event.target) || next[idx].active;
-    if (typeof event.quantity === "number") next[idx].hp = Math.max(0, Math.min(100, event.quantity));
+    const idx = eventSideIndex(event);
+    next[idx].active = event.raw?.target?.pokemon || displayPokemon(event.target) || next[idx].active;
+    next[idx].speciesId = event.raw?.target?.species_id || next[idx].speciesId;
+    const hp = event.raw?.hp?.hp_percent ?? event.quantity;
+    if (typeof hp === "number") next[idx].hp = Math.max(0, Math.min(100, hp));
+    if (event.raw?.hp?.status) next[idx].status = event.raw.hp.status;
   }
   if (event.kind === "faint") {
-    const idx = sideIndex(event.target);
-    next[idx].active = displayPokemon(event.target) || next[idx].active;
+    const idx = eventSideIndex(event);
+    next[idx].active = event.raw?.target?.pokemon || displayPokemon(event.target) || next[idx].active;
+    next[idx].speciesId = event.raw?.target?.species_id || next[idx].speciesId;
     next[idx].hp = 0;
     next[idx].status = "fainted";
   }
   if (event.kind === "status") {
-    const idx = sideIndex(event.target);
+    const idx = eventSideIndex(event);
     next[idx].status = event.detail || "status";
   }
   return next;
 }
 
+function PokemonSprite({ side }: { side: SideState }) {
+  const [failed, setFailed] = useState(false);
+  const url = side.speciesId ? `https://play.pokemonshowdown.com/sprites/gen5ani/${side.speciesId}.gif` : "";
+  if (!url || failed) return <div className="sprite-orb">{side.active.slice(0, 1)}</div>;
+  return <img className="pokemon-sprite" src={url} alt="" onError={() => setFailed(true)} />;
+}
+
 function formatEvent(event: BattleEvent): string {
   if (event.kind === "turn_start") return `Turn ${event.turn}`;
-  if (event.kind === "move") return `${displayPokemon(event.source)} used ${event.detail}`;
-  if (event.kind === "switch") return `${event.side} switched in ${event.detail || "a Pokémon"}`;
-  if (event.kind === "damage") return `${displayPokemon(event.target)} took damage (${event.detail})`;
-  if (event.kind === "heal") return `${displayPokemon(event.target)} healed (${event.detail})`;
-  if (event.kind === "faint") return `${displayPokemon(event.target)} fainted`;
+  if (event.kind === "move") return `${event.raw?.source?.pokemon || displayPokemon(event.source)} used ${event.detail}`;
+  if (event.kind === "switch") return `${event.raw?.pokemon?.pokemon || displayPokemon(event.side)} switched in (${event.raw?.hp?.hp_text || event.detail || "ready"})`;
+  if (event.kind === "damage") return `${event.raw?.target?.pokemon || displayPokemon(event.target)} took damage (${event.raw?.hp?.hp_text || event.detail})`;
+  if (event.kind === "heal") return `${event.raw?.target?.pokemon || displayPokemon(event.target)} healed (${event.raw?.hp?.hp_text || event.detail})`;
+  if (event.kind === "faint") return `${event.raw?.target?.pokemon || displayPokemon(event.target)} fainted`;
   if (event.kind === "battle_end") return `Winner: ${event.detail}`;
   return [event.kind, event.side || event.target || event.source, event.detail].filter(Boolean).join(" · ");
 }
@@ -79,14 +98,14 @@ function Battlefield({ battle, events }: { battle: BattleResponse | null; events
         <h3>{sides[1].active}</h3>
         <div className="hp-track"><div className="hp-fill" style={{ width: `${sides[1].hp}%` }} /></div>
         <p>{sides[1].hp}% HP · {sides[1].status}</p>
-        <div className="sprite-orb">{sides[1].active.slice(0, 1)}</div>
+        <PokemonSprite side={sides[1]} />
       </div>
       <div className="combatant bottom">
         <div className="row" style={{ justifyContent: "space-between" }}><strong>{sides[0].label}</strong><span className="badge green">{battle?.model1 || "model"}</span></div>
         <h3>{sides[0].active}</h3>
         <div className="hp-track"><div className="hp-fill" style={{ width: `${sides[0].hp}%` }} /></div>
         <p>{sides[0].hp}% HP · {sides[0].status}</p>
-        <div className="sprite-orb">{sides[0].active.slice(0, 1)}</div>
+        <PokemonSprite side={sides[0]} />
       </div>
     </div>
   );
@@ -111,6 +130,7 @@ export default function Battle() {
   const [rawLog, setRawLog] = useState<string[]>([]);
   const [events, setEvents] = useState<BattleEvent[]>([]);
   const [wsState, setWsState] = useState("idle");
+  const showdownHref = `${import.meta.env.BASE_URL || "/"}showdown/`;
 
   useEffect(() => {
     Promise.all([api.meta.formats(), api.meta.models(), user ? api.teams.list() : Promise.resolve([])])
@@ -196,6 +216,7 @@ export default function Battle() {
             {battle && <div className="row"><span className="badge">{battle.status}</span><span>{battle.format}</span><span>{battle.turns ?? 0} turns</span></div>}
             {battle?.winner && <div className="notice">Winner: <strong>{battle.winner}</strong></div>}
             <div className="notice">WebSocket: {wsState}</div>
+            <a className="button secondary" href={showdownHref} target="_blank" rel="noreferrer">Open Showdown client</a>
             {battle?.status === "finished" && <Link className="button" to="/replays" state={{ battleId: battle.id }}>Open replay</Link>}
           </div>
         </section>
@@ -221,7 +242,7 @@ export default function Battle() {
           <fieldset className="stack"><legend>Player 1</legend><label className="field"><span>Model</span><select value={p1Model} onChange={(e) => setP1Model(e.target.value)}>{models.map((model) => <option key={model.name} value={model.name}>{model.name}</option>)}</select></label><label className="field"><span>Username</span><input value={p1Name} onChange={(e) => setP1Name(e.target.value)} required /></label><label className="field"><span>Team</span><select value={team1Id} onChange={(e) => setTeam1Id(e.target.value)}><option value="">Random/default</option>{teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label></fieldset>
           <fieldset className="stack"><legend>Player 2</legend><label className="field"><span>Model</span><select value={p2Model} onChange={(e) => setP2Model(e.target.value)}>{models.map((model) => <option key={model.name} value={model.name}>{model.name}</option>)}</select></label><label className="field"><span>Username</span><input value={p2Name} onChange={(e) => setP2Name(e.target.value)} required /></label><label className="field"><span>Team</span><select value={team2Id} onChange={(e) => setTeam2Id(e.target.value)}><option value="">Random/default</option>{teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label></fieldset>
         </div>
-        <div className="notice">Custom team IDs are accepted by the API but engine execution still needs the backend team wiring slice to make them affect the match.</div>
+        <div className="notice">Custom teams are passed to the battle engine for non-random formats. Random formats may still ignore explicit teams.</div>
         <button className="button" type="submit">Launch battle</button>
       </form>
     </main>

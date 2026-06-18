@@ -103,6 +103,7 @@ class ReplayResponse(BaseModel):
     battle_id: str
     format: str
     events: list[dict[str, Any]]
+    raw_log: str | None = None
     duration_s: float | None
     turns: int | None
 
@@ -139,10 +140,10 @@ class ErrorResponse(BaseModel):
 
 
 __all__ = [
+    "AuthMeResponse",
     "BattleCreate",
     "BattleParticipant",
     "BattleResponse",
-    "AuthMeResponse",
     "ErrorResponse",
     "FormatResponse",
     "HealthResponse",

@@ -28,6 +28,8 @@ class BattleJob:
     player2: str = ""
     model1: str = ""
     model2: str = ""
+    team1_paste: str | None = None
+    team2_paste: str | None = None
     on_start: Callable[[BattleJob], Awaitable[None]] | None = None
     on_complete: Callable[[BattleJob, JobResult], Awaitable[None]] | None = None
 

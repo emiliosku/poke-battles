@@ -9,13 +9,12 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from pokecore.elo import GlickoRating, rate_pair
-
 from pokeapi.auth import require_current_user
 from pokeapi.db import session_scope
-from pokeapi.db.models import Battle, Rating, Replay, User
+from pokeapi.db.models import Battle, Rating, Replay, Team, User
 from pokeapi.orchestrator import BattleJob, JobResult
 from pokeapi.schemas import BattleCreate, BattleResponse
+from pokecore.elo import GlickoRating, rate_pair
 
 logger = logging.getLogger(__name__)
 
@@ -30,12 +29,27 @@ async def create_battle(
 ) -> BattleResponse:
     factory = request.app.state.session_factory
     orch = request.app.state.orchestrator
+    team1_paste: str | None = None
+    team2_paste: str | None = None
+    with session_scope(factory) as session:
+        if body.team1_id is not None:
+            team = session.get(Team, body.team1_id)
+            if team is None or team.owner_id != user.id:
+                raise HTTPException(status_code=404, detail="Team 1 not found")
+            team1_paste = team.paste
+        if body.team2_id is not None:
+            team = session.get(Team, body.team2_id)
+            if team is None or team.owner_id != user.id:
+                raise HTTPException(status_code=404, detail="Team 2 not found")
+            team2_paste = team.paste
     job = BattleJob(
         format=body.format,
         player1=body.player1.username,
         player2=body.player2.username,
         model1=body.player1.model_name,
         model2=body.player2.model_name,
+        team1_paste=team1_paste,
+        team2_paste=team2_paste,
     )
     battle_id = job.id
     with session_scope(factory) as session:

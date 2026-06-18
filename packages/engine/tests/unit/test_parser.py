@@ -22,7 +22,10 @@ class TestParseLine:
         assert ev is not None
         assert ev.kind == EventKind.MOVE
         assert ev.source == "p1a: Charizard"
+        assert ev.target == "p2a: Venusaur"
         assert ev.detail == "Flare Blitz"
+        assert ev.raw["source"]["species_id"] == "charizard"
+        assert ev.raw["target"]["side"] == "p2"
 
     def test_switch(self) -> None:
         ev = parse_line("|switch|p1a: Charizard|100/100")
@@ -30,6 +33,8 @@ class TestParseLine:
         assert ev.kind == EventKind.SWITCH
         assert ev.side == "p1a: Charizard"
         assert ev.detail == "100/100"
+        assert ev.raw["pokemon"]["pokemon"] == "Charizard"
+        assert ev.raw["hp"]["hp_percent"] == 100
 
     def test_damage(self) -> None:
         ev = parse_line("|-damage|p2a: Venusaur|45/100")
@@ -37,12 +42,17 @@ class TestParseLine:
         assert ev.kind == EventKind.DAMAGE
         assert ev.target == "p2a: Venusaur"
         assert ev.detail == "45/100"
+        assert ev.quantity == 45
+        assert ev.raw["target"]["species_id"] == "venusaur"
+        assert ev.raw["hp"]["hp_percent"] == 45
 
     def test_faint_via_damage(self) -> None:
         ev = parse_line("|-damage|p2a: Venusaur|0 fnt")
         assert ev is not None
         assert ev.kind == EventKind.FAINT
         assert ev.target == "p2a: Venusaur"
+        assert ev.quantity == 0
+        assert ev.raw["hp"]["status"] == "fnt"
 
     def test_faint_direct(self) -> None:
         ev = parse_line("|faint|p2a: Venusaur")
