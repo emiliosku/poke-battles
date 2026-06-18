@@ -1,18 +1,35 @@
 import { useState } from "react";
 import type { BattleEvent, BattleResponse } from "./api";
 
-interface SideState {
-  label: string;
+interface SlotState {
   active: string;
   speciesId: string;
   hp: number;
   status: string;
   lastMove: string;
+  slot: "a" | "b";
+}
+
+interface SideState {
+  label: string;
+  slots: [SlotState, SlotState];
 }
 
 const initialSides: [SideState, SideState] = [
-  { label: "Player 1", active: "Awaiting switch", speciesId: "", hp: 100, status: "ready", lastMove: "" },
-  { label: "Player 2", active: "Awaiting switch", speciesId: "", hp: 100, status: "ready", lastMove: "" },
+  {
+    label: "Player 1",
+    slots: [
+      { active: "Awaiting switch", speciesId: "", hp: 100, status: "ready", lastMove: "", slot: "a" },
+      { active: "Awaiting partner", speciesId: "", hp: 100, status: "ready", lastMove: "", slot: "b" },
+    ],
+  },
+  {
+    label: "Player 2",
+    slots: [
+      { active: "Awaiting switch", speciesId: "", hp: 100, status: "ready", lastMove: "", slot: "a" },
+      { active: "Awaiting partner", speciesId: "", hp: 100, status: "ready", lastMove: "", slot: "b" },
+    ],
+  },
 ];
 
 const timelineKinds = new Set([
@@ -45,6 +62,18 @@ function eventSideIndex(event: BattleEvent): 0 | 1 {
   return sideIndex(event.source || event.target || event.side);
 }
 
+function slotIndex(raw?: string): 0 | 1 {
+  return raw?.startsWith("b") ? 1 : 0;
+}
+
+function eventSlotIndex(event: BattleEvent, ref: "source" | "target" | "pokemon" = "pokemon"): 0 | 1 {
+  const pokemonRef = event.raw?.[ref];
+  if (pokemonRef?.slot) return slotIndex(pokemonRef.slot);
+  const raw = ref === "source" ? event.source : ref === "target" ? event.target : event.side;
+  const slot = raw?.match(/^p\da:/) ? "a" : raw?.match(/^p\db:/) ? "b" : undefined;
+  return slotIndex(slot);
+}
+
 function displayPokemon(raw?: string): string {
   if (!raw) return "Unknown";
   const cleaned = raw.split(":").pop()?.trim() || raw;
@@ -52,45 +81,77 @@ function displayPokemon(raw?: string): string {
 }
 
 function applyEvent(sides: [SideState, SideState], event: BattleEvent): [SideState, SideState] {
-  const next: [SideState, SideState] = [{ ...sides[0] }, { ...sides[1] }];
+  const next: [SideState, SideState] = [
+    { ...sides[0], slots: [{ ...sides[0].slots[0] }, { ...sides[0].slots[1] }] },
+    { ...sides[1], slots: [{ ...sides[1].slots[0] }, { ...sides[1].slots[1] }] },
+  ];
   if (event.kind === "switch") {
     const idx = eventSideIndex(event);
-    next[idx].active = event.raw?.pokemon?.pokemon || displayPokemon(event.side);
-    next[idx].speciesId = event.raw?.pokemon?.species_id || next[idx].speciesId;
-    next[idx].hp = event.raw?.hp?.hp_percent ?? 100;
-    next[idx].status = event.raw?.hp?.status || "active";
+    const slot = eventSlotIndex(event);
+    next[idx].slots[slot].active = event.raw?.pokemon?.pokemon || displayPokemon(event.side);
+    next[idx].slots[slot].speciesId = event.raw?.pokemon?.species_id || next[idx].slots[slot].speciesId;
+    next[idx].slots[slot].hp = event.raw?.hp?.hp_percent ?? 100;
+    next[idx].slots[slot].status = event.raw?.hp?.status || "active";
   }
   if (event.kind === "move") {
     const idx = eventSideIndex(event);
-    next[idx].lastMove = event.detail || "move";
+    const slot = eventSlotIndex(event, "source");
+    next[idx].slots[slot].lastMove = event.detail || "move";
   }
   if (event.kind === "damage" || event.kind === "heal") {
     const idx = eventSideIndex(event);
-    next[idx].active = event.raw?.target?.pokemon || displayPokemon(event.target) || next[idx].active;
-    next[idx].speciesId = event.raw?.target?.species_id || next[idx].speciesId;
+    const slot = eventSlotIndex(event, "target");
+    next[idx].slots[slot].active = event.raw?.target?.pokemon || displayPokemon(event.target) || next[idx].slots[slot].active;
+    next[idx].slots[slot].speciesId = event.raw?.target?.species_id || next[idx].slots[slot].speciesId;
     const hp = event.raw?.hp?.hp_percent ?? event.quantity;
-    if (typeof hp === "number") next[idx].hp = Math.max(0, Math.min(100, hp));
-    if (event.raw?.hp?.status) next[idx].status = event.raw.hp.status;
+    if (typeof hp === "number") next[idx].slots[slot].hp = Math.max(0, Math.min(100, hp));
+    if (event.raw?.hp?.status) next[idx].slots[slot].status = event.raw.hp.status;
   }
   if (event.kind === "faint") {
     const idx = eventSideIndex(event);
-    next[idx].active = event.raw?.target?.pokemon || displayPokemon(event.target) || next[idx].active;
-    next[idx].speciesId = event.raw?.target?.species_id || next[idx].speciesId;
-    next[idx].hp = 0;
-    next[idx].status = "fainted";
+    const slot = eventSlotIndex(event, "target");
+    next[idx].slots[slot].active = event.raw?.target?.pokemon || displayPokemon(event.target) || next[idx].slots[slot].active;
+    next[idx].slots[slot].speciesId = event.raw?.target?.species_id || next[idx].slots[slot].speciesId;
+    next[idx].slots[slot].hp = 0;
+    next[idx].slots[slot].status = "fainted";
   }
   if (event.kind === "status" || event.kind === "cure_status") {
     const idx = eventSideIndex(event);
-    next[idx].status = event.kind === "cure_status" ? "active" : event.detail || "status";
+    const slot = eventSlotIndex(event, "target");
+    next[idx].slots[slot].status = event.kind === "cure_status" ? "active" : event.detail || "status";
   }
   return next;
 }
 
-function PokemonSprite({ side }: { side: SideState }) {
+function PokemonSprite({ slot }: { slot: SlotState }) {
   const [failed, setFailed] = useState(false);
-  const url = side.speciesId ? `https://play.pokemonshowdown.com/sprites/gen5ani/${side.speciesId}.gif` : "";
-  if (!url || failed) return <div className="sprite-orb">{side.active.slice(0, 1)}</div>;
+  const url = slot.speciesId ? `https://play.pokemonshowdown.com/sprites/gen5ani/${slot.speciesId}.gif` : "";
+  if (!url || failed) return <div className="sprite-orb">{slot.active.slice(0, 1)}</div>;
   return <img className="pokemon-sprite" src={url} alt="" onError={() => setFailed(true)} />;
+}
+
+export function battleSidesFromEvents(events: BattleEvent[]): [SideState, SideState] {
+  return visibleTimelineEvents(events).reduce(applyEvent, initialSides);
+}
+
+function usesDoublesSlots(events: BattleEvent[]): boolean {
+  return events.some((event) => {
+    const refs = [event.raw?.source, event.raw?.target, event.raw?.pokemon];
+    return refs.some((ref) => ref?.slot === "b") || [event.source, event.target, event.side].some((raw) => /^p\db:/.test(raw || ""));
+  });
+}
+
+function CombatSlot({ slot }: { slot: SlotState }) {
+  return (
+    <div className="combat-slot">
+      <span className="badge">Slot {slot.slot.toUpperCase()}</span>
+      <h3>{slot.active}</h3>
+      <div className="hp-track"><div className="hp-fill" style={{ width: `${slot.hp}%` }} /></div>
+      <p>{slot.hp}% HP · {slot.status}</p>
+      {slot.lastMove && <p>Last move: {slot.lastMove}</p>}
+      <PokemonSprite slot={slot} />
+    </div>
+  );
 }
 
 export function visibleTimelineEvents(events: BattleEvent[]): BattleEvent[] {
@@ -137,27 +198,20 @@ export function formatEvent(event: BattleEvent): string {
 
 export function Battlefield({ battle, events }: { battle?: BattleResponse | null; events: BattleEvent[] }) {
   const visible = visibleTimelineEvents(events);
-  const sides = visible.reduce(applyEvent, initialSides);
+  const sides = battleSidesFromEvents(visible);
   sides[0].label = battle?.player1_username || "Player 1";
   sides[1].label = battle?.player2_username || "Player 2";
+  const activeSlots = battle?.format.includes("double") || usesDoublesSlots(visible) ? 2 : 1;
 
   return (
     <div className="battlefield" aria-label="Battlefield viewer">
       <div className="combatant top">
         <div className="row" style={{ justifyContent: "space-between" }}><strong>{sides[1].label}</strong><span className="badge red">{battle?.model2 || "opponent"}</span></div>
-        <h3>{sides[1].active}</h3>
-        <div className="hp-track"><div className="hp-fill" style={{ width: `${sides[1].hp}%` }} /></div>
-        <p>{sides[1].hp}% HP · {sides[1].status}</p>
-        {sides[1].lastMove && <p>Last move: {sides[1].lastMove}</p>}
-        <PokemonSprite side={sides[1]} />
+        {sides[1].slots.slice(0, activeSlots).map((slot) => <CombatSlot key={slot.slot} slot={slot} />)}
       </div>
       <div className="combatant bottom">
         <div className="row" style={{ justifyContent: "space-between" }}><strong>{sides[0].label}</strong><span className="badge green">{battle?.model1 || "you"}</span></div>
-        <h3>{sides[0].active}</h3>
-        <div className="hp-track"><div className="hp-fill" style={{ width: `${sides[0].hp}%` }} /></div>
-        <p>{sides[0].hp}% HP · {sides[0].status}</p>
-        {sides[0].lastMove && <p>Last move: {sides[0].lastMove}</p>}
-        <PokemonSprite side={sides[0]} />
+        {sides[0].slots.slice(0, activeSlots).map((slot) => <CombatSlot key={slot.slot} slot={slot} />)}
       </div>
     </div>
   );
