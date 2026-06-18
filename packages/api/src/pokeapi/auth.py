@@ -21,10 +21,10 @@ from pokeapi.settings import Settings, get_settings
 Provider = Literal["github", "google"]
 
 GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
-GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
+GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"  # noqa: S105
 GITHUB_USER_URL = "https://api.github.com/user"
 GOOGLE_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
-GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105
 GOOGLE_USER_URL = "https://openidconnect.googleapis.com/v1/userinfo"
 
 

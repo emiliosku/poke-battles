@@ -87,7 +87,7 @@ async def create_simulation(
                 if s is not None:
                     s.status = "failed"
 
-    tasks = getattr(request.app.state, "simulation_tasks", set())
+    tasks: set[asyncio.Task[None]] = getattr(request.app.state, "simulation_tasks", set())
     request.app.state.simulation_tasks = tasks
     task = asyncio.create_task(_run())
     tasks.add(task)

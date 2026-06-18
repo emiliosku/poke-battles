@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
-from pokecore.formats import SUPPORTED_FORMATS
-
 from pokeapi.schemas import FormatResponse, ModelResponse
+from pokecore.formats import SUPPORTED_FORMATS
 
 router = APIRouter(tags=["meta"])
 

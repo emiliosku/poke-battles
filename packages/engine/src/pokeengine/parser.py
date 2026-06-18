@@ -119,7 +119,7 @@ def _move(args: list[str], turn: int) -> Event:
 def _switch(args: list[str], turn: int) -> Event:
     if not args:
         return _e(EventKind.MESSAGE, turn, detail="switch")
-    raw = {"pokemon": _pokemon_ref(args[0])}
+    raw: dict[str, Any] = {"pokemon": _pokemon_ref(args[0])}
     if len(args) > 1:
         raw["hp"] = _hp(args[1])
     return _e(

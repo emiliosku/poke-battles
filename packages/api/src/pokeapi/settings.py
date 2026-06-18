@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["*"]
     external_base_url: str = "http://localhost:8000"
     frontend_base_url: str = "http://localhost:5173"
-    session_secret: str = "dev-only-change-me"
+    session_secret: str = "dev-only-change-me"  # noqa: S105
     session_cookie_name: str = "poke_battles_session"
     session_days: int = 14
     github_oauth_client_id: str | None = None

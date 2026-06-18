@@ -11,14 +11,12 @@ RUN apk add --no-cache git python3 make g++ \
 
 FROM node:20-alpine
 
-RUN apk add --no-cache tini curl \
-    && addgroup -S client -g 1000 \
-    && adduser -S client -u 1000 -G client
+RUN apk add --no-cache tini curl
 
 WORKDIR /opt/client
-COPY --from=builder --chown=client:client /build /opt/client
+COPY --from=builder --chown=node:node /build /opt/client
 
-USER client
+USER node
 EXPOSE 8000
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=5 \
