@@ -67,3 +67,4 @@ jobs:
             cd /home/ubuntu/oci-infra
             docker compose pull poke-battles-api poke-battles-showdown
             docker compose up -d poke-battles-api poke-battles-showdown
+            docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile
