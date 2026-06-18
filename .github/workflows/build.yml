@@ -25,7 +25,19 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev
       - name: Lint (ruff)
-        run: uv run ruff check .
+        id: lint
+        continue-on-error: true
+        run: |
+          uv run ruff check --output-format=sarif . > ruff-results.sarif
+      - name: Upload ruff SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ruff-results.sarif
+      - name: Lint exit code check
+        if: steps.lint.outcome != 'success'
+        run: |
+          echo "Lint failed — see annotations above"
+          exit 1
       - name: Format check (ruff)
         run: uv run ruff format --check .
       - name: Typecheck (mypy strict)
