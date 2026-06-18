@@ -44,6 +44,17 @@ class User(Base):
     teams: Mapped[list[Team]] = relationship(back_populates="owner")
 
 
+class UserSession(Base):
+    __tablename__ = "user_sessions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    token_hash: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(default=_utcnow)
+    expires_at: Mapped[datetime] = mapped_column()
+
+    user: Mapped[User] = relationship()
+
+
 class Team(Base):
     __tablename__ = "teams"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -66,6 +77,7 @@ class Battle(Base):
     player2_username: Mapped[str] = mapped_column(String(64))
     model1: Mapped[str] = mapped_column(String(64))
     model2: Mapped[str] = mapped_column(String(64))
+    owner_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     team1_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))
     team2_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))
     winner: Mapped[str | None] = mapped_column(String(64))
@@ -90,6 +102,7 @@ class Tournament(Base):
 class Simulation(Base):
     __tablename__ = "simulations"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     mode: Mapped[str] = mapped_column(String(32))
     format: Mapped[str] = mapped_column(String(64), default="gen9randombattle")
     team_a_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))
@@ -138,4 +151,5 @@ __all__ = [
     "Team",
     "Tournament",
     "User",
+    "UserSession",
 ]

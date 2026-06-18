@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
+from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
+from pokeapi.auth import require_current_user
 from pokeapi.db import session_scope
-from pokeapi.db.models import Battle, Rating, Replay
+from pokeapi.db.models import Battle, Rating, Replay, Team, User
 from pokeapi.orchestrator import BattleJob, JobResult
 from pokeapi.schemas import BattleCreate, BattleResponse
 from pokecore.elo import GlickoRating, rate_pair
@@ -21,15 +22,42 @@ router = APIRouter(prefix="/battles", tags=["battles"])
 
 
 @router.post("", response_model=BattleResponse, status_code=status.HTTP_202_ACCEPTED)
-async def create_battle(body: BattleCreate, request: Request) -> BattleResponse:
+async def create_battle(
+    body: BattleCreate,
+    request: Request,
+    user: User = Depends(require_current_user),
+) -> BattleResponse:
     factory = request.app.state.session_factory
     orch = request.app.state.orchestrator
-    battle_id = f"battle-{int(time.time() * 1000)}"
+    team1_paste: str | None = None
+    team2_paste: str | None = None
+    with session_scope(factory) as session:
+        if body.team1_id is not None:
+            team = session.get(Team, body.team1_id)
+            if team is None or team.owner_id != user.id:
+                raise HTTPException(status_code=404, detail="Team 1 not found")
+            team1_paste = team.paste
+        if body.team2_id is not None:
+            team = session.get(Team, body.team2_id)
+            if team is None or team.owner_id != user.id:
+                raise HTTPException(status_code=404, detail="Team 2 not found")
+            team2_paste = team.paste
+    job = BattleJob(
+        format=body.format,
+        player1=body.player1.username,
+        player2=body.player2.username,
+        model1=body.player1.model_name,
+        model2=body.player2.model_name,
+        team1_paste=team1_paste,
+        team2_paste=team2_paste,
+    )
+    battle_id = job.id
     with session_scope(factory) as session:
         battle = Battle(
             id=battle_id,
             format=body.format,
             status="queued",
+            owner_id=user.id,
             player1_username=body.player1.username,
             player2_username=body.player2.username,
             model1=body.player1.model_name,
@@ -39,39 +67,65 @@ async def create_battle(body: BattleCreate, request: Request) -> BattleResponse:
         )
         session.add(battle)
 
+    async def on_start(started_job: BattleJob) -> None:
+        with session_scope(factory) as sess:
+            b = sess.get(Battle, started_job.id)
+            if b is not None:
+                b.status = "running"
+                b.started_at = datetime.now(UTC)
+
     async def on_complete(job: BattleJob, result: JobResult) -> None:
         with session_scope(factory) as sess:
             b = sess.get(Battle, job.id)
             if b is not None:
-                b.status = "finished"
+                b.status = "finished" if result.winner is not None or result.events else "failed"
                 b.winner = result.winner
                 b.turns = result.turns
-                b.finished_at = b.finished_at or b.created_at
+                b.duration_s = result.duration_s
+                b.finished_at = datetime.now(UTC)
             if result.events or result.raw_log:
                 replay = Replay(
                     battle_id=job.id,
                     events=[e.to_dict() if hasattr(e, "to_dict") else e for e in result.events],
                     raw_log=result.raw_log or "",
+                    summary_json={
+                        "format": job.format,
+                        "turns": result.turns,
+                        "duration_s": result.duration_s,
+                        "winner": result.winner,
+                    },
                 )
                 sess.add(replay)
             if result.winner is not None:
                 _update_ratings(sess, job, result.winner)
 
-    job = BattleJob(
-        id=battle_id,
-        format=body.format,
-        player1=body.player1.username,
-        player2=body.player2.username,
-        model1=body.player1.model_name,
-        model2=body.player2.model_name,
-        on_complete=on_complete,
-    )
+    job.on_start = on_start
+    job.on_complete = on_complete
     await orch.submit(job)
     with session_scope(factory) as session:
         battle_opt = session.get(Battle, battle_id)
         if battle_opt is None:
             raise HTTPException(status_code=500, detail="Battle vanished after submit")
         return _to_response(battle_opt)
+
+
+@router.get("", response_model=list[BattleResponse])
+async def list_battles(
+    request: Request,
+    limit: int = 25,
+    user: User = Depends(require_current_user),
+) -> list[BattleResponse]:
+    factory = request.app.state.session_factory
+    capped_limit = min(max(limit, 1), 100)
+    with session_scope(factory) as session:
+        battles = (
+            session.query(Battle)
+            .filter(Battle.owner_id == user.id)
+            .order_by(Battle.created_at.desc())
+            .limit(capped_limit)
+            .all()
+        )
+        return [_to_response(battle) for battle in battles]
 
 
 @router.get("/{battle_id}", response_model=BattleResponse)
@@ -113,7 +167,9 @@ def _update_ratings(sess: Any, job: BattleJob, winner: str) -> None:
 def _to_response(b: Battle) -> BattleResponse:
     started = b.started_at
     finished = b.finished_at
-    duration = (finished - started).total_seconds() if started and finished else None
+    duration = b.duration_s
+    if duration is None and started and finished:
+        duration = (finished - started).total_seconds()
     return BattleResponse(
         id=b.id,
         format=b.format,

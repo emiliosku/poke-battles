@@ -29,6 +29,9 @@ class BattleJob:
     player2: str = ""
     model1: str = ""
     model2: str = ""
+    team1_paste: str | None = None
+    team2_paste: str | None = None
+    on_start: Callable[[BattleJob], Awaitable[None]] | None = None
     on_complete: Callable[[BattleJob, JobResult], Awaitable[None]] | None = None
 
 
@@ -98,6 +101,11 @@ class Orchestrator:
                 logger.warning("No runner set; cannot process job %s", job.id)
                 continue
             try:
+                if job.on_start is not None:
+                    try:
+                        await job.on_start(job)
+                    except Exception:
+                        logger.exception("on_start callback failed")
                 result = await self._runner(job)
                 self.results[job.id] = result
                 if job.on_complete is not None:

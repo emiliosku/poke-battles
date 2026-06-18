@@ -32,6 +32,17 @@ class TeamResponse(BaseModel):
     pokemon_count: int
 
 
+class UserResponse(BaseModel):
+    id: str
+    display_name: str | None = None
+    avatar_url: str | None = None
+
+
+class AuthMeResponse(BaseModel):
+    authenticated: bool
+    user: UserResponse | None = None
+
+
 class BattleCreate(BaseModel):
     format: str = "gen9randombattle"
     player1: BattleParticipant
@@ -92,6 +103,7 @@ class ReplayResponse(BaseModel):
     battle_id: str
     format: str
     events: list[dict[str, Any]]
+    raw_log: str | None = None
     duration_s: float | None
     turns: int | None
 
@@ -104,20 +116,43 @@ class LeaderboardEntry(BaseModel):
     games: int
 
 
+class FormatResponse(BaseModel):
+    id: str
+    name: str
+    generation: str
+    kind: str
+    team_size: int
+    level: int
+    random_team: bool
+
+
+class ModelResponse(BaseModel):
+    name: str
+    provider: str
+    tier: str
+    supports_tools: bool
+    rate_limit_rpm: int | None = None
+    notes: str = ""
+
+
 class ErrorResponse(BaseModel):
     detail: str
 
 
 __all__ = [
+    "AuthMeResponse",
     "BattleCreate",
     "BattleParticipant",
     "BattleResponse",
     "ErrorResponse",
+    "FormatResponse",
     "HealthResponse",
     "LeaderboardEntry",
+    "ModelResponse",
     "ReplayResponse",
     "SimulationCreate",
     "SimulationResponse",
     "TeamCreate",
     "TeamResponse",
+    "UserResponse",
 ]

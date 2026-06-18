@@ -150,6 +150,8 @@ class BattleService:
         player2: str,
         model1: str,
         model2: str,
+        team1_paste: str | None = None,
+        team2_paste: str | None = None,
         timeout: float = 240.0,
     ) -> dict[str, Any]:
         """Run one battle and return a result dict."""
@@ -173,6 +175,7 @@ class BattleService:
             server_configuration=server,
             battle_format=battle_format,
             max_concurrent_battles=1,
+            team=team1_paste,
             choose_move_for_turn=self.chooser_for(model1),
             on_event=_broadcast_event,
             on_raw_line=_broadcast_raw,
@@ -182,6 +185,7 @@ class BattleService:
             server_configuration=server,
             battle_format=battle_format,
             max_concurrent_battles=1,
+            team=team2_paste,
             choose_move_for_turn=self.chooser_for(model2),
             on_event=_broadcast_event,
             on_raw_line=_broadcast_raw,
@@ -213,6 +217,8 @@ class BattleService:
         battle_format: str,
         team_a_id: int | None = None,
         team_b_id: int | None = None,
+        team_a_paste: str | None = None,
+        team_b_paste: str | None = None,
         models: list[str] | None = None,
         n_battles: int = 20,
     ) -> dict[str, Any]:
@@ -234,6 +240,8 @@ class BattleService:
                     player2=f"sim-b-{_random_suffix()}",
                     model1=model1,
                     model2=model2,
+                    team1_paste=team_a_paste,
+                    team2_paste=team_b_paste,
                 )
                 if "error" in result:
                     draws += 1
@@ -266,6 +274,8 @@ class BattleService:
                             player2=f"rr-{m2}-{_random_suffix()}",
                             model1=m1,
                             model2=m2,
+                            team1_paste=None,
+                            team2_paste=None,
                         )
                         if "error" in result:
                             draws += 1
@@ -303,6 +313,8 @@ class BattleService:
                     player2=f"ladder-{m2}-{_random_suffix()}",
                     model1=m1,
                     model2=m2,
+                    team1_paste=None,
+                    team2_paste=None,
                 )
                 if "error" in result:
                     entries[m1]["draws"] += 1
@@ -335,6 +347,8 @@ class BattleService:
                 player2=job.player2,
                 model1=job.model1,
                 model2=job.model2,
+                team1_paste=job.team1_paste,
+                team2_paste=job.team2_paste,
             )
             if "error" in result:
                 return JobResult(

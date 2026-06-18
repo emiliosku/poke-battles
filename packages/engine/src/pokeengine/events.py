@@ -60,6 +60,8 @@ class Event:
             out["quantity"] = self.quantity
         if self.source is not None:
             out["source"] = self.source
+        if self.raw:
+            out["raw"] = self.raw
         return out
 
 

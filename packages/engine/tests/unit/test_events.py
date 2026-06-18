@@ -20,6 +20,7 @@ class TestEvent:
             detail="Flare Blitz",
             quantity=2,
             source="p1a: Charizard",
+            raw={"species_id": "charizard"},
         )
         d = ev.to_dict()
         assert d["kind"] == "move"
@@ -29,6 +30,7 @@ class TestEvent:
         assert d["detail"] == "Flare Blitz"
         assert d["quantity"] == 2
         assert d["source"] == "p1a: Charizard"
+        assert d["raw"] == {"species_id": "charizard"}
 
 
 class TestBattleResult:
