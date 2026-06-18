@@ -41,6 +41,12 @@ def _random_suffix(length: int = 4) -> str:
     return "".join(random.choices(string.digits, k=length))
 
 
+def _showdown_account_name(name: str, suffix: str, side: str) -> str:
+    normalized = "".join(ch for ch in name.lower() if ch.isalnum()) or "player"
+    account_suffix = f"{side}{suffix}"
+    return f"{normalized[: 18 - len(account_suffix)]}{account_suffix}"
+
+
 def _server_config_for_port(port: int) -> ServerConfiguration:
     return ServerConfiguration(
         websocket_url=f"ws://localhost:{port}/showdown/websocket",
@@ -182,7 +188,9 @@ class BattleService:
                 await self._manager.broadcast_raw(bt, line)
 
         a = AgentPlayer(
-            account_configuration=AccountConfiguration(f"{player1}-{suffix}", None),
+            account_configuration=AccountConfiguration(
+                _showdown_account_name(player1, suffix, "a"), None
+            ),
             server_configuration=server,
             battle_format=battle_format,
             max_concurrent_battles=1,
@@ -192,7 +200,9 @@ class BattleService:
             on_raw_line=_broadcast_raw,
         )
         b = AgentPlayer(
-            account_configuration=AccountConfiguration(f"{player2}-{suffix}", None),
+            account_configuration=AccountConfiguration(
+                _showdown_account_name(player2, suffix, "b"), None
+            ),
             server_configuration=server,
             battle_format=battle_format,
             max_concurrent_battles=1,
@@ -243,8 +253,8 @@ class BattleService:
         assert self.handle is not None
         server = _server_config_for_port(self.handle.port)
         suffix = _random_suffix()
-        player_username = f"{player}-{suffix}"
-        ai_username = f"{ai_player}-{suffix}"
+        player_username = _showdown_account_name(player, suffix, "a")
+        ai_username = _showdown_account_name(ai_player, suffix, "b")
 
         async def _broadcast_event(_bt: str, ev: Any) -> None:
             if self._manager is not None:
