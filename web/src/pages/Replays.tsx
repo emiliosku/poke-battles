@@ -1,18 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { api, type BattleEvent, type ReplayResponse } from "../api";
-
-function eventText(event: BattleEvent): string {
-  const subject = event.raw?.source?.pokemon || event.raw?.target?.pokemon || event.raw?.pokemon?.pokemon || event.source || event.target || event.side || "Battle";
-  if (event.kind === "turn_start") return `Turn ${event.turn}`;
-  if (event.kind === "move") return `${subject} used ${event.detail}`;
-  if (event.kind === "switch") return `${subject} switched (${event.raw?.hp?.hp_text || event.detail || "ready"})`;
-  if (event.kind === "damage") return `${subject} took damage: ${event.raw?.hp?.hp_text || event.detail}`;
-  if (event.kind === "heal") return `${subject} healed: ${event.raw?.hp?.hp_text || event.detail}`;
-  if (event.kind === "faint") return `${subject} fainted`;
-  if (event.kind === "battle_end") return `Winner: ${event.detail}`;
-  return [event.kind, subject, event.detail].filter(Boolean).join(" · ");
-}
+import { api, type BattleResponse, type ReplayResponse } from "../api";
+import { Battlefield, formatEvent, visibleTimelineEvents } from "../battleView";
 
 export default function Replays() {
   const location = useLocation();
@@ -20,6 +9,7 @@ export default function Replays() {
     ? String(location.state.battleId)
     : "";
   const [replay, setReplay] = useState<ReplayResponse | null>(null);
+  const [battle, setBattle] = useState<BattleResponse | null>(null);
   const [battleId, setBattleId] = useState(initialBattleId);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -29,10 +19,15 @@ export default function Replays() {
     if (!id.trim()) return;
     setError("");
     setReplay(null);
+    setBattle(null);
     setLoading(true);
     try {
-      const result = await api.replays.get(id.trim());
+      const [result, battleResult] = await Promise.all([
+        api.replays.get(id.trim()),
+        api.battles.get(id.trim()).catch(() => null),
+      ]);
       setReplay(result);
+      setBattle(battleResult);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -44,7 +39,8 @@ export default function Replays() {
     if (initialBattleId) void load(initialBattleId);
   }, []);
 
-  const lastEvent = replay?.events[replay.events.length - 1];
+  const timeline = replay ? visibleTimelineEvents(replay.events) : [];
+  const lastEvent = timeline[timeline.length - 1];
 
   return (
     <main className="page">
@@ -66,11 +62,8 @@ export default function Replays() {
             <span className="eyebrow">Summary</span>
             <h2>{replay.battle_id}</h2>
             <p>{replay.format} · {replay.turns ?? "?"} turns · {replay.duration_s?.toFixed(1) ?? "?"}s</p>
-            {lastEvent && <div className="notice">Final event: {eventText(lastEvent)}</div>}
-            <div className="battlefield" style={{ minHeight: 320 }}>
-              <div className="combatant top"><strong>Opponent side</strong><div className="sprite-orb">?</div></div>
-              <div className="combatant bottom"><strong>Your side</strong><div className="sprite-orb">?</div></div>
-            </div>
+            {lastEvent && <div className="notice">Final event: {formatEvent(lastEvent)}</div>}
+            <Battlefield battle={battle} events={timeline} />
           </div>
           <div className="card stack">
             <div className="row" style={{ justifyContent: "space-between" }}>
@@ -81,10 +74,10 @@ export default function Replays() {
               </div>
             </div>
             <div className="event-log">
-              {view === "timeline" && replay.events.length === 0 && <p>No replay events recorded.</p>}
-              {view === "timeline" && replay.events.map((event, index) => (
+              {view === "timeline" && timeline.length === 0 && <p>No replay events recorded.</p>}
+              {view === "timeline" && timeline.map((event, index) => (
                 <div className="event-line" key={`${event.kind}-${index}`}>
-                  <span className="badge">T{event.turn}</span> {eventText(event)}
+                  <span className="badge">T{event.turn}</span> {formatEvent(event)}
                 </div>
               ))}
               {view === "raw" && !replay.raw_log && <p>No raw protocol stored for this replay.</p>}

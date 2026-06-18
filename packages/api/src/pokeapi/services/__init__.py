@@ -103,6 +103,15 @@ def build_chooser(
     return _build_llm_chooser(model_name, config)
 
 
+def _winner_from_events(events: list[Any]) -> str | None:
+    for event in reversed(events):
+        if getattr(event.kind, "value", event.kind) == "battle_end":
+            if event.detail and event.detail != "tie":
+                return str(event.detail)
+            return None
+    return None
+
+
 def _find_showdown_free_port() -> int:
     import socket
 
@@ -199,15 +208,17 @@ class BattleService:
         duration = time.monotonic() - t0
         if bid is None:
             return {"error": "battle did not produce a result", "duration_s": duration}
+        events = a.events_for(bid)
+        winner = a._battle_winners.get(bid) or _winner_from_events(events)
         return {
             "battle_id": bid,
-            "winner": a._battle_winners.get(bid),
+            "winner": winner,
             "turns": a._battle_turns.get(bid, 0),
             "duration_s": duration,
             "format": battle_format,
-            "events": a.events_for(bid),
+            "events": events,
             "raw_log": a.raw_log_for(bid),
-            "events_count": len(a.events_for(bid)),
+            "events_count": len(events),
         }
 
     async def run_simulation(
@@ -245,9 +256,11 @@ class BattleService:
                 )
                 if "error" in result:
                     draws += 1
-                elif result.get("winner", "").startswith("sim-a"):
+                    continue
+                winner = str(result.get("winner") or "")
+                if winner.startswith("sim-a"):
                     wins += 1
-                elif result.get("winner", "").startswith("sim-b"):
+                elif winner.startswith("sim-b"):
                     losses += 1
                 else:
                     draws += 1
@@ -279,9 +292,11 @@ class BattleService:
                         )
                         if "error" in result:
                             draws += 1
-                        elif result.get("winner", "").startswith(f"rr-{m1}"):
+                            continue
+                        winner = str(result.get("winner") or "")
+                        if winner.startswith(f"rr-{m1}"):
                             m1_wins += 1
-                        elif result.get("winner", "").startswith(f"rr-{m2}"):
+                        elif winner.startswith(f"rr-{m2}"):
                             m2_wins += 1
                         else:
                             draws += 1
@@ -320,7 +335,7 @@ class BattleService:
                     entries[m1]["draws"] += 1
                     entries[m2]["draws"] += 1
                 else:
-                    w = result.get("winner", "")
+                    w = str(result.get("winner") or "")
                     if w.startswith(f"ladder-{m1}"):
                         entries[m1]["wins"] += 1
                         entries[m2]["losses"] += 1

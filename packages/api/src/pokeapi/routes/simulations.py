@@ -6,6 +6,7 @@ import asyncio
 import logging
 import time
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
@@ -79,7 +80,7 @@ async def create_simulation(
                     s.draws = result.get("draws", 0)
                     s.win_rate = result.get("win_rate")
                     s.results_json = result
-                    s.finished_at = s.finished_at or s.created_at
+                    s.finished_at = datetime.now(UTC)
         except Exception:
             logger.exception("Simulation %s failed", sim_id)
             with session_scope(factory) as sess:
