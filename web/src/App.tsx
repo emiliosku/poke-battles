@@ -49,8 +49,11 @@ function NotFound() {
       <div className="hero">
         <span className="eyebrow">404</span>
         <h1>Route fled.</h1>
-        <p>The page you requested is not in this battle party.</p>
-        <Link className="button" to="/">Return to dashboard</Link>
+        <p>The page you requested is not in this battle party. Pick a destination from the navigation above, or head back to the dashboard.</p>
+        <div className="row" style={{ marginTop: 6 }}>
+          <Link className="button" to="/">Back to dashboard</Link>
+          <Link className="button secondary" to="/replays">Browse replays</Link>
+        </div>
       </div>
     </section>
   );

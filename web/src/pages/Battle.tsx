@@ -125,10 +125,9 @@ export default function Battle() {
         <section className="grid two">
           <Battlefield battle={battle} events={events} />
           <div className="card stack">
-            <h2>Battle control</h2>
+            <div className="action-head"><h2>Battle control</h2><span className={`ws-dot ws-${wsState}`} title={`WebSocket: ${wsState}`} /></div>
             {battle && <div className="row"><span className="badge">{battle.status}</span><span>{battle.format}</span><span>{battle.turns ?? 0} turns</span></div>}
             {battle?.winner && <div className="notice">Winner: <strong>{battle.winner}</strong></div>}
-            <div className="notice">WebSocket: {wsState}</div>
             <div className="notice">Use this built-in viewer for live and saved battles. The upstream Showdown client is not connected to these private battle logs.</div>
             {battle?.status === "finished" && <Link className="button" to="/replays" state={{ battleId: battle.id }}>Open replay</Link>}
           </div>

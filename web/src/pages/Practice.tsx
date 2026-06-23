@@ -1,10 +1,43 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, wsUrl, type BattleEvent, type BattleResponse, type FormatOption, type ModelOption, type PracticeActionRequest, type Team } from "../api";
+import { api, wsUrl, type BattleEvent, type BattleResponse, type FormatOption, type ModelOption, type PracticeActionOption, type PracticeActionRequest, type Team } from "../api";
 import { useAuth } from "../auth";
 import { Battlefield, formatEvent, visibleTimelineEvents } from "../battleView";
 
 const terminalStatuses = new Set(["finished", "failed", "user_timeout_loss", "timed_out_points", "timed_out_draw"]);
+
+const TYPE_COLORS: Record<string, string> = {
+  normal: "#A8A77A", fire: "#EE8130", water: "#6390F0", electric: "#F7D02C",
+  grass: "#7AC74C", ice: "#96D9D6", fighting: "#C22E28", poison: "#A33EA1",
+  ground: "#E2BF65", flying: "#A98FF3", psychic: "#F95587", bug: "#A6B91A",
+  rock: "#B6A136", ghost: "#735797", dragon: "#6F35FC", dark: "#705746",
+  steel: "#B7B7CE", fairy: "#D685AD", stellar: "#40C5BB", "???": "#68A090",
+};
+
+function typeColor(type?: string): string {
+  if (!type) return "#64748b";
+  return TYPE_COLORS[type.toLowerCase()] || "#64748b";
+}
+
+function isMoveOption(opt: PracticeActionOption): boolean {
+  if (opt.kind === "move") return true;
+  if (opt.kind === "switch") return false;
+  return opt.id.startsWith("move");
+}
+
+function useHotkeys(handler: (key: string) => void) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      const k = e.key.toLowerCase();
+      if (/^[1-9]$/.test(k)) handler(k);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [handler]);
+}
 
 function secondsLeft(expiresAt?: string): number | null {
   if (!expiresAt) return null;
@@ -162,6 +195,49 @@ export default function Practice() {
     }
   };
 
+  const moveOptions = useMemo(
+    () => (action ? action.options.filter(isMoveOption) : []),
+    [action],
+  );
+  const switchOptions = useMemo(
+    () => (action ? action.options.filter((o) => !isMoveOption(o)) : []),
+    [action],
+  );
+
+  useHotkeys((key) => {
+    if (!action || submitting) return;
+    const idx = Number(key) - 1;
+    const opt = action.options[idx];
+    if (opt) void submitAction(opt.id);
+  });
+
+  function renderMoveButton(opt: PracticeActionOption, index: number) {
+    const color = typeColor(opt.type);
+    const pp = opt.pp;
+    const ppText = pp ? `${pp.current}/${pp.max}` : null;
+    const disabled = Boolean(submitting);
+    return (
+      <button
+        type="button"
+        className="move-button"
+        disabled={disabled}
+        onClick={() => void submitAction(opt.id)}
+        key={opt.id}
+        style={{
+          borderColor: color,
+          background: `linear-gradient(180deg, ${color}28, ${color}10)`,
+        }}
+      >
+        <span className="move-key" aria-hidden="true">{index + 1}</span>
+        <span className="move-label">{submitting === opt.id ? "Submitting..." : opt.label}</span>
+        <span className="move-meta">
+          {opt.type && <span className="move-type" style={{ background: color }}>{opt.type}</span>}
+          {ppText && <span className="move-pp">PP {ppText}</span>}
+        </span>
+      </button>
+    );
+  }
+
   if (!user) {
     return <main className="page"><section className="hero"><span className="eyebrow">Practice</span><h1>Sign in to train against AI.</h1></section><Link className="button" to="/signin">Sign in</Link></main>;
   }
@@ -173,14 +249,56 @@ export default function Practice() {
         {error && <div className="notice error">{error}</div>}
         <section className="grid two">
           <Battlefield battle={battle} events={events} />
-          <div className="card stack">
-            <h2>Controls</h2>
+          <div className="card stack action-card">
+            <div className="action-head">
+              <h2>Controls</h2>
+              <span className={`ws-dot ws-${wsState}`} title={`WebSocket: ${wsState}`} />
+            </div>
             {battle && <div className="row"><span className="badge">{battle.status}</span><span>{battle.format}</span><span>{battle.turns ?? 0} turns</span></div>}
             {battle?.winner && <div className="notice">Winner: <strong>{battle.winner}</strong></div>}
-            <div className="notice">WebSocket: {wsState}</div>
-            {action && <div className="notice"><strong>{remaining ?? 0}s</strong> left to choose. Missing the timer forfeits the practice battle.</div>}
-            {!action && battle && !terminalStatuses.has(battle.status) && <p>Waiting for Showdown to request your next action...</p>}
-            {action && <div className="stack">{action.options.map((option) => <button className="button secondary" type="button" disabled={Boolean(submitting)} key={option.id} onClick={() => void submitAction(option.id)}>{submitting === option.id ? "Submitting..." : option.label}</button>)}</div>}
+            {action && (
+              <div className="action-timer" role="timer" aria-live="polite">
+                <strong>{remaining ?? 0}s</strong> left to choose
+                <span className="muted"> · miss the timer and the practice battle is forfeit</span>
+              </div>
+            )}
+            {!action && battle && !terminalStatuses.has(battle.status) && (
+              <div className="action-waiting">
+                <span className="spinner" aria-hidden="true" />
+                Waiting for Showdown to request your next action...
+              </div>
+            )}
+            {action && (
+              <>
+                <div className="action-section">
+                  <h3 className="action-section-title">Moves <span className="muted">press 1–4</span></h3>
+                  {moveOptions.length === 0 && <p className="muted">No moves available.</p>}
+                  <div className="moves-grid">
+                    {moveOptions.map((opt, i) => renderMoveButton(opt, i))}
+                  </div>
+                </div>
+                {switchOptions.length > 0 && (
+                  <div className="action-section">
+                    <h3 className="action-section-title">Switch <span className="muted">press {moveOptions.length + 1}–{action.options.length}</span></h3>
+                    <div className="switches-row">
+                      {switchOptions.map((opt, i) => (
+                        <button
+                          type="button"
+                          className="switch-button"
+                          disabled={Boolean(submitting)}
+                          key={opt.id}
+                          onClick={() => void submitAction(opt.id)}
+                          title={opt.message}
+                        >
+                          <span className="switch-key" aria-hidden="true">{moveOptions.length + i + 1}</span>
+                          <span className="switch-label">{submitting === opt.id ? "Submitting..." : opt.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </section>
         <section className="grid two" style={{ marginTop: 16 }}>

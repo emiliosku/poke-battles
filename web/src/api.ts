@@ -120,6 +120,11 @@ export interface PracticeActionOption {
   id: string;
   label: string;
   message: string;
+  kind?: "move" | "switch";
+  type?: string;
+  pp?: { current: number; max: number };
+  target?: string;
+  pokemon?: string;
 }
 
 export interface PracticeActionRequest {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { BattleEvent, BattleResponse } from "./api";
 
 interface SlotState {
@@ -123,11 +123,58 @@ function applyEvent(sides: [SideState, SideState], event: BattleEvent): [SideSta
   return next;
 }
 
+// Showdown ships several sprite paths. gen5ani is missing for many Gen 9 mons,
+// so we walk the chain gen5ani → ani (newer animated) → dex (static png).
+function spriteUrls(speciesId: string): string[] {
+  if (!speciesId) return [];
+  return [
+    `https://play.pokemonshowdown.com/sprites/gen5ani/${speciesId}.gif`,
+    `https://play.pokemonshowdown.com/sprites/ani/${speciesId}.gif`,
+    `https://play.pokemonshowdown.com/sprites/dex/${speciesId}.png`,
+  ];
+}
+
 function PokemonSprite({ slot }: { slot: SlotState }) {
-  const [failed, setFailed] = useState(false);
-  const url = slot.speciesId ? `https://play.pokemonshowdown.com/sprites/gen5ani/${slot.speciesId}.gif` : "";
-  if (!url || failed) return <div className="sprite-orb">{slot.active.slice(0, 1)}</div>;
-  return <img className="pokemon-sprite" src={url} alt="" onError={() => setFailed(true)} />;
+  const urls = spriteUrls(slot.speciesId);
+  const [idx, setIdx] = useState(0);
+  const [allFailed, setAllFailed] = useState(false);
+  // When the speciesId flips from empty to a real value (or to a different
+  // mon), reset the chain and the failure flag so the new sprite can load.
+  useEffect(() => {
+    setIdx(0);
+    setAllFailed(false);
+  }, [slot.speciesId]);
+  const url = urls[idx];
+  if (!url) {
+    // No species yet — slot is empty (e.g. "Awaiting switch").
+    return (
+      <div className="sprite-orb empty" title={slot.active}>
+        <span className="sprite-orb-name">{slot.active}</span>
+      </div>
+    );
+  }
+  if (allFailed) {
+    // All sprite URLs exhausted without success.
+    return (
+      <div className="sprite-orb fallback" title={slot.active}>
+        <span className="sprite-orb-name">{slot.active}</span>
+      </div>
+    );
+  }
+  return (
+    <img
+      className="pokemon-sprite"
+      src={url}
+      alt={slot.active}
+      onError={() => {
+        if (idx + 1 < urls.length) {
+          setIdx(idx + 1);
+        } else {
+          setAllFailed(true);
+        }
+      }}
+    />
+  );
 }
 
 export function battleSidesFromEvents(events: BattleEvent[]): [SideState, SideState] {
@@ -145,11 +192,11 @@ function CombatSlot({ slot }: { slot: SlotState }) {
   return (
     <div className="combat-slot">
       <span className="badge">Slot {slot.slot.toUpperCase()}</span>
-      <h3>{slot.active}</h3>
-      <div className="hp-track"><div className="hp-fill" style={{ width: `${slot.hp}%` }} /></div>
-      <p>{slot.hp}% HP · {slot.status}</p>
-      {slot.lastMove && <p>Last move: {slot.lastMove}</p>}
+      <h3 className="combat-name">{slot.active}</h3>
       <PokemonSprite slot={slot} />
+      <div className="hp-track"><div className="hp-fill" style={{ width: `${slot.hp}%` }} /></div>
+      <p className="combat-status">{slot.hp}% HP · {slot.status}</p>
+      {slot.lastMove && <p className="combat-last">Last move: {slot.lastMove}</p>}
     </div>
   );
 }
@@ -206,12 +253,16 @@ export function Battlefield({ battle, events }: { battle?: BattleResponse | null
   return (
     <div className="battlefield" aria-label="Battlefield viewer">
       <div className="combatant top">
-        <div className="row" style={{ justifyContent: "space-between" }}><strong>{sides[1].label}</strong><span className="badge red">{battle?.model2 || "opponent"}</span></div>
-        {sides[1].slots.slice(0, activeSlots).map((slot) => <CombatSlot key={slot.slot} slot={slot} />)}
+        <div className="combatant-head"><strong>{sides[1].label}</strong><span className="badge red">{battle?.model2 || "opponent"}</span></div>
+        <div className="slots-row">
+          {sides[1].slots.slice(0, activeSlots).map((slot) => <CombatSlot key={slot.slot} slot={slot} />)}
+        </div>
       </div>
       <div className="combatant bottom">
-        <div className="row" style={{ justifyContent: "space-between" }}><strong>{sides[0].label}</strong><span className="badge green">{battle?.model1 || "you"}</span></div>
-        {sides[0].slots.slice(0, activeSlots).map((slot) => <CombatSlot key={slot.slot} slot={slot} />)}
+        <div className="combatant-head"><strong>{sides[0].label}</strong><span className="badge green">{battle?.model1 || "you"}</span></div>
+        <div className="slots-row">
+          {sides[0].slots.slice(0, activeSlots).map((slot) => <CombatSlot key={slot.slot} slot={slot} />)}
+        </div>
       </div>
     </div>
   );
