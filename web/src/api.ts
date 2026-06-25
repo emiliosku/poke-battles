@@ -162,7 +162,7 @@ export interface PracticeActionRequest {
   request_id: string;
   battle_id: string;
   expires_at: string;
-  options: PracticeActionOption[];
+  options: PracticeOption[];
 }
 
 export interface ModelOption {
