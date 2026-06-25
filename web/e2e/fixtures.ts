@@ -131,21 +131,59 @@ export const REPLAY = {
   turns: 14,
 };
 
-// The action panel in practice mode: 4 moves with type/PP + 3 switches.
-// Exercises the new 2x2 grid + separate switch row.
+// A normal-turn practice action: 4 moves with type/PP + 3 switches.
+// Exercises the 2x2 grid + separate switch row with sprite+name+HP.
 export const PRACTICE_ACTION = {
   kind: "practice_action_required",
   request_id: "req-2026-03-09-001",
   battle_id: BATTLE_SINGLES_RUNNING.id,
   expires_at: new Date(Date.now() + 27_000).toISOString(),
+  phase: "move",
+  pick: 1,
   options: [
-    { id: "move 1", label: "Thunderbolt", message: "Use move 1: Thunderbolt", kind: "move", type: "electric", pp: { current: 18, max: 24 }, target: "opponent" },
-    { id: "move 2", label: "Volt Switch", message: "Use move 2: Volt Switch", kind: "move", type: "electric", pp: { current: 7, max: 20 }, target: "opponent" },
-    { id: "move 3", label: "Hidden Power Ice", message: "Use move 3: Hidden Power Ice", kind: "move", type: "ice", pp: { current: 12, max: 16 }, target: "opponent" },
-    { id: "move 4", label: "Encore", message: "Use move 4: Encore", kind: "move", type: "normal", pp: { current: 4, max: 5 }, target: "opponent" },
-    { id: "switch 1", label: "Garchomp", message: "Switch to Garchomp", kind: "switch", pokemon: "Garchomp" },
-    { id: "switch 2", label: "Ferrothorn", message: "Switch to Ferrothorn", kind: "switch", pokemon: "Ferrothorn" },
-    { id: "switch 3", label: "Rotom-Wash", message: "Switch to Rotom-Wash", kind: "switch", pokemon: "Rotom-Wash" },
+    { kind: "move", id: "move 1", move: { id: "move 1", label: "Thunderbolt", type: "electric", pp: { current: 18, max: 24 }, target: "opponent" } },
+    { kind: "move", id: "move 2", move: { id: "move 2", label: "Volt Switch", type: "electric", pp: { current: 7, max: 20 }, target: "opponent" } },
+    { kind: "move", id: "move 3", move: { id: "move 3", label: "Hidden Power Ice", type: "ice", pp: { current: 12, max: 16 }, target: "opponent" } },
+    { kind: "move", id: "move 4", move: { id: "move 4", label: "Encore", type: "normal", pp: { current: 4, max: 5 }, target: "opponent" } },
+    { kind: "switch", id: "switch 1", pokemon: { name: "Garchomp", species_id: "garchomp", types: ["dragon", "ground"], hp_percent: 100, status: "active", position: 1, fainted: false } },
+    { kind: "switch", id: "switch 2", pokemon: { name: "Ferrothorn", species_id: "ferrothorn", types: ["grass", "steel"], hp_percent: 87, status: "active", position: 2, fainted: false } },
+    { kind: "switch", id: "switch 3", pokemon: { name: "Rotom-Wash", species_id: "rotom-wash", types: ["electric", "water"], hp_percent: 53, status: "active", position: 3, fainted: false } },
+  ],
+};
+
+// Team preview: pick N leads from your full team. Only doubles formats
+// have this phase.
+export const PRACTICE_ACTION_TEAM_PREVIEW = {
+  kind: "practice_action_required",
+  request_id: "req-2026-03-09-tp",
+  battle_id: BATTLE_SINGLES_RUNNING.id,
+  expires_at: new Date(Date.now() + 89_000).toISOString(),
+  phase: "team_preview",
+  pick: 2,
+  options: [
+    { kind: "switch", id: "switch 1", pokemon: { name: "Incineroar", species_id: "incineroar", types: ["fire", "dark"], hp_percent: 100, status: "active", position: 1, fainted: false } },
+    { kind: "switch", id: "switch 2", pokemon: { name: "Flutter Mane", species_id: "fluttermane", types: ["ghost", "fairy"], hp_percent: 100, status: "active", position: 2, fainted: false } },
+    { kind: "switch", id: "switch 3", pokemon: { name: "Rillaboom", species_id: "rillaboom", types: ["grass"], hp_percent: 100, status: "active", position: 3, fainted: false } },
+    { kind: "switch", id: "switch 4", pokemon: { name: "Garchomp", species_id: "garchomp", types: ["dragon", "ground"], hp_percent: 100, status: "active", position: 4, fainted: false } },
+    { kind: "switch", id: "switch 5", pokemon: { name: "Ferrothorn", species_id: "ferrothorn", types: ["grass", "steel"], hp_percent: 100, status: "active", position: 5, fainted: false } },
+    { kind: "switch", id: "switch 6", pokemon: { name: "Rotom-Wash", species_id: "rotom-wash", types: ["electric", "water"], hp_percent: 100, status: "active", position: 6, fainted: false } },
+  ],
+};
+
+// Forced switch: a Pokémon on the field just fainted. You MUST send in
+// a replacement, no moves available.
+export const PRACTICE_ACTION_FORCED_SWITCH = {
+  kind: "practice_action_required",
+  request_id: "req-2026-03-09-fs",
+  battle_id: BATTLE_SINGLES_RUNNING.id,
+  expires_at: new Date(Date.now() + 29_000).toISOString(),
+  phase: "switch",
+  pick: 1,
+  options: [
+    { kind: "switch", id: "switch 1", pokemon: { name: "Garchomp", species_id: "garchomp", types: ["dragon", "ground"], hp_percent: 100, status: "active", position: 1, fainted: false } },
+    { kind: "switch", id: "switch 2", pokemon: { name: "Ferrothorn", species_id: "ferrothorn", types: ["grass", "steel"], hp_percent: 64, status: "active", position: 2, fainted: false } },
+    { kind: "switch", id: "switch 3", pokemon: { name: "Rotom-Wash", species_id: "rotom-wash", types: ["electric", "water"], hp_percent: 41, status: "brn", position: 3, fainted: false } },
+    { kind: "switch", id: "switch 4", pokemon: { name: "Dragapult", species_id: "dragapult", types: ["dragon", "ghost"], hp_percent: 0, status: "fnt", position: 4, fainted: true } },
   ],
 };
 

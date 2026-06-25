@@ -12,6 +12,8 @@ import {
   BATTLE_DOUBLES_EVENTS,
   REPLAY,
   PRACTICE_ACTION,
+  PRACTICE_ACTION_TEAM_PREVIEW,
+  PRACTICE_ACTION_FORCED_SWITCH,
   SIMULATIONS,
   BATTLES_HISTORY,
 } from "./fixtures";
@@ -20,6 +22,8 @@ const SHOTS = process.env.SHOT_DIR || "/tmp/opencode/shots";
 const DEMO_BATTLE_ID = BATTLE_DOUBLES_FINISHED.id;
 const LIVE_BATTLE_ID = BATTLE_SINGLES_RUNNING.id;
 const PRACTICE_ID = "practice-live-2026-03-09-zzz";
+const PRACTICE_TEAM_PREVIEW_ID = "practice-tp-2026-03-09-aaa";
+const PRACTICE_FORCED_SWITCH_ID = "practice-fs-2026-03-09-bbb";
 
 async function mockApi(page: Page, opts: { signedIn: boolean }) {
   // Single catch-all: dispatch by URL path. Avoids Playwright route-pattern
@@ -60,6 +64,8 @@ async function mockApi(page: Page, opts: { signedIn: boolean }) {
       path === `/api/battles/${DEMO_BATTLE_ID}` ? BATTLE_DOUBLES_FINISHED
       : path === `/api/battles/${LIVE_BATTLE_ID}` ? BATTLE_SINGLES_RUNNING
       : path === `/api/battles/${PRACTICE_ID}` ? BATTLE_SINGLES_RUNNING
+      : path === `/api/battles/${PRACTICE_TEAM_PREVIEW_ID}` ? BATTLE_SINGLES_RUNNING
+      : path === `/api/battles/${PRACTICE_FORCED_SWITCH_ID}` ? BATTLE_SINGLES_RUNNING
       : null;
     if (battleById) return json(200, battleById);
     if (path === "/api/battles" && method === "POST") return json(201, BATTLE_DOUBLES_FINISHED);
@@ -68,6 +74,12 @@ async function mockApi(page: Page, opts: { signedIn: boolean }) {
     // Practice
     if (path === `/api/practice/battles/${PRACTICE_ID}/action`) {
       return json(200, { action: PRACTICE_ACTION });
+    }
+    if (path === `/api/practice/battles/${PRACTICE_TEAM_PREVIEW_ID}/action`) {
+      return json(200, { action: PRACTICE_ACTION_TEAM_PREVIEW });
+    }
+    if (path === `/api/practice/battles/${PRACTICE_FORCED_SWITCH_ID}/action`) {
+      return json(200, { action: PRACTICE_ACTION_FORCED_SWITCH });
     }
     if (path === "/api/practice/battles" && method === "POST") return json(201, BATTLE_SINGLES_RUNNING);
 
@@ -79,6 +91,8 @@ async function mockApi(page: Page, opts: { signedIn: boolean }) {
     // Replays
     if (path === `/api/replays/${DEMO_BATTLE_ID}`) return json(200, REPLAY);
     if (path === `/api/replays/${PRACTICE_ID}`) return json(200, REPLAY);
+    if (path === `/api/replays/${PRACTICE_TEAM_PREVIEW_ID}`) return json(200, REPLAY);
+    if (path === `/api/replays/${PRACTICE_FORCED_SWITCH_ID}`) return json(200, REPLAY);
 
     // Default: 200 with empty object so the page doesn't crash, and log it.
     // eslint-disable-next-line no-console
@@ -88,15 +102,15 @@ async function mockApi(page: Page, opts: { signedIn: boolean }) {
 }
 
 async function settleSprites(page: Page, timeoutMs = 6000) {
-  // Wait until every pokemon-sprite <img> has finished loading (success or
-  // hard failure). "Loading" is not settled — naturalWidth is 0 and the
+  // Wait until every pokemon sprite (battle view + mon icon) has finished
+  // loading (success or hard failure). "Loading" is not settled — the
   // browser hasn't fired load/error yet. The fallback chain may swap the
   // src a few times, so we re-check every 200ms.
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const settled = await page.evaluate(() => {
-      const imgs = Array.from(document.images).filter((img) =>
-        img.classList.contains("pokemon-sprite"),
+      const imgs = Array.from(document.images).filter(
+        (img) => img.classList.contains("pokemon-sprite") || img.classList.contains("mon-icon-img"),
       );
       if (imgs.length === 0) return true;
       return imgs.every((img) => img.complete);
@@ -105,6 +119,22 @@ async function settleSprites(page: Page, timeoutMs = 6000) {
     await page.waitForTimeout(200);
   }
   await page.waitForTimeout(400);
+}
+
+async function stubWebSocket(page: Page) {
+  await page.addInitScript(() => {
+    const RealWS = window.WebSocket;
+    // @ts-expect-error: monkey-patch for tests
+    window.WebSocket = function (url: string) {
+      const fake: any = {
+        url, readyState: 1, onopen: null, onclose: null, onerror: null, onmessage: null,
+        close() { if (this.onclose) this.onclose({} as CloseEvent); },
+      };
+      setTimeout(() => fake.onopen && fake.onopen({} as Event), 0);
+      return fake;
+    };
+    void RealWS;
+  });
 }
 
 async function shot(page: Page, name: string) {
@@ -195,35 +225,7 @@ test.describe("poke-battles UI: every screen", () => {
 
   test("live battle view (sprite + attack focus)", async ({ page }) => {
     await mockApi(page, { signedIn: true });
-
-    // Stub the websocket so the page doesn't try to open one
-    // (it would fail anyway against a missing backend; we want deterministic
-    // state for the screenshot).
-    await page.addInitScript(() => {
-      const RealWS = window.WebSocket;
-      // @ts-expect-error: monkey-patch for tests
-      window.WebSocket = function (url: string) {
-        const fake: any = {
-          url,
-          readyState: 1,
-          onopen: null,
-          onclose: null,
-          onerror: null,
-          onmessage: null,
-          close() {
-            if (this.onclose) this.onclose({} as CloseEvent);
-          },
-        };
-        setTimeout(() => fake.onopen && fake.onopen({} as Event), 0);
-        return fake;
-      };
-      // Carry over constants
-      (window.WebSocket as any).CONNECTING = 0;
-      (window.WebSocket as any).OPEN = 1;
-      (window.WebSocket as any).CLOSING = 2;
-      (window.WebSocket as any).CLOSED = 3;
-      void RealWS;
-    });
+    await stubWebSocket(page);
 
     // Wait for the replays request BEFORE navigation so we don't miss it.
     const replaysResp = page.waitForResponse(
@@ -257,32 +259,12 @@ test.describe("poke-battles UI: every screen", () => {
 
   test("practice battle view (action panel focus)", async ({ page }) => {
     await mockApi(page, { signedIn: true });
-    await page.addInitScript(() => {
-      const RealWS = window.WebSocket;
-      // @ts-expect-error: monkey-patch for tests
-      window.WebSocket = function (url: string) {
-        const fake: any = {
-          url,
-          readyState: 1,
-          onopen: null,
-          onclose: null,
-          onerror: null,
-          onmessage: null,
-          close() {
-            if (this.onclose) this.onclose({} as CloseEvent);
-          },
-        };
-        setTimeout(() => fake.onopen && fake.onopen({} as Event), 0);
-        return fake;
-      };
-      void RealWS;
-    });
+    await stubWebSocket(page);
 
     await page.goto(`/practice/${PRACTICE_ID}`);
-    // The page polls every 3s, so networkidle never resolves. Just wait for
-    // the action buttons to appear (we know the mock returns them).
+    // The intro overlay shows for ~2.2s, then the action card reveals.
     await expect(page.getByRole("button", { name: /Thunderbolt/i })).toBeVisible();
-    await settleSprites(page, 3000);
+    await settleSprites(page, 4000);
     await shot(page, "17-practice-action-panel");
   });
 
@@ -295,19 +277,10 @@ test.describe("poke-battles UI: every screen", () => {
     });
     const page = await ctx.newPage();
     await mockApi(page, { signedIn: true });
-    await page.addInitScript(() => {
-      const RealWS = window.WebSocket;
-      // @ts-expect-error: monkey-patch for tests
-      window.WebSocket = function (url: string) {
-        const fake: any = { url, readyState: 1, onopen: null, onclose: null, onerror: null, onmessage: null, close() {} };
-        setTimeout(() => fake.onopen && fake.onopen({} as Event), 0);
-        return fake;
-      };
-      void RealWS;
-    });
+    await stubWebSocket(page);
     await page.goto(`/practice/${PRACTICE_ID}`);
     await expect(page.getByRole("button", { name: /Thunderbolt/i })).toBeVisible();
-    await settleSprites(page, 3000);
+    await settleSprites(page, 4000);
     await shot(page, "18-practice-action-mobile");
     await ctx.close();
   });
@@ -321,16 +294,7 @@ test.describe("poke-battles UI: every screen", () => {
     });
     const page = await ctx.newPage();
     await mockApi(page, { signedIn: true });
-    await page.addInitScript(() => {
-      const RealWS = window.WebSocket;
-      // @ts-expect-error: monkey-patch for tests
-      window.WebSocket = function (url: string) {
-        const fake: any = { url, readyState: 1, onopen: null, onclose: null, onerror: null, onmessage: null, close() {} };
-        setTimeout(() => fake.onopen && fake.onopen({} as Event), 0);
-        return fake;
-      };
-      void RealWS;
-    });
+    await stubWebSocket(page);
     const replaysResp = page.waitForResponse(
       (r) => r.url().includes(`/api/replays/${DEMO_BATTLE_ID}`),
       { timeout: 15_000 },
@@ -340,5 +304,36 @@ test.describe("poke-battles UI: every screen", () => {
     await settleSprites(page, 4000);
     await shot(page, "19-battle-view-mobile");
     await ctx.close();
+  });
+
+  test("practice battle view — pre-battle intro", async ({ page }) => {
+    await mockApi(page, { signedIn: true });
+    await stubWebSocket(page);
+    await page.goto(`/practice/${PRACTICE_ID}`);
+    // Capture before the intro overlay (2.2s) lifts.
+    await expect(page.getByTestId("battle-intro")).toBeVisible();
+    await settleSprites(page, 1000);
+    await shot(page, "20-practice-intro");
+  });
+
+  test("practice battle view — team preview phase", async ({ page }) => {
+    await mockApi(page, { signedIn: true });
+    await stubWebSocket(page);
+    await page.goto(`/practice/${PRACTICE_TEAM_PREVIEW_ID}`);
+    // The first switch option's name appears in the grid.
+    await expect(page.getByRole("button", { name: /Incineroar/i })).toBeVisible();
+    await settleSprites(page, 4000);
+    await shot(page, "21-practice-team-preview");
+  });
+
+  test("practice battle view — forced switch phase", async ({ page }) => {
+    await mockApi(page, { signedIn: true });
+    await stubWebSocket(page);
+    await page.goto(`/practice/${PRACTICE_FORCED_SWITCH_ID}`);
+    // No move buttons — only switches.
+    await expect(page.getByRole("button", { name: /Garchomp/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Thunderbolt/i })).toHaveCount(0);
+    await settleSprites(page, 4000);
+    await shot(page, "22-practice-forced-switch");
   });
 });

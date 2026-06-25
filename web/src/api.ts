@@ -116,15 +116,45 @@ export interface FormatOption {
   experimental: boolean;
 }
 
-export interface PracticeActionOption {
+// Structured data about a Pokémon you could switch to. Lets the UI show
+// the mon's sprite, type, and remaining HP without guessing from a label.
+export interface PracticeSwitchPokemon {
+  name: string;
+  species_id: string;
+  types: string[];
+  hp_percent: number;
+  status: string;
+  position: number;
+  fainted: boolean;
+}
+
+export interface PracticeMoveOption {
   id: string;
   label: string;
-  message: string;
-  kind?: "move" | "switch";
-  type?: string;
-  pp?: { current: number; max: number };
+  type: string;
+  pp: { current: number; max: number };
   target?: string;
-  pokemon?: string;
+  disabled?: boolean;
+  disabled_reason?: string;
+}
+
+export type PracticeOption =
+  | { kind: "move"; id: string; move: PracticeMoveOption }
+  | { kind: "switch"; id: string; pokemon: PracticeSwitchPokemon };
+
+// A single, well-typed choice. `phase` tells the UI what to render:
+//   - "team_preview": pick N leads from your full team (doubles only)
+//   - "switch": forced switch after a faint, pick one replacement
+//   - "move": normal turn, pick a move (or switch out of own choice)
+//   - "free": no input needed right now (waiting for opponent / resolved)
+export interface PracticeActionRequest {
+  kind: "practice_action_required";
+  request_id: string;
+  battle_id: string;
+  expires_at: string;
+  phase: "team_preview" | "switch" | "move" | "free";
+  pick: number;
+  options: PracticeOption[];
 }
 
 export interface PracticeActionRequest {

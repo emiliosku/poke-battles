@@ -1,6 +1,18 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, wsUrl, type BattleEvent, type BattleResponse, type FormatOption, type ModelOption, type PracticeActionOption, type PracticeActionRequest, type Team } from "../api";
+import {
+  api,
+  wsUrl,
+  type BattleEvent,
+  type BattleResponse,
+  type FormatOption,
+  type ModelOption,
+  type PracticeActionRequest,
+  type PracticeMoveOption,
+  type PracticeOption,
+  type PracticeSwitchPokemon,
+  type Team,
+} from "../api";
 import { useAuth } from "../auth";
 import { Battlefield, formatEvent, visibleTimelineEvents } from "../battleView";
 
@@ -17,12 +29,6 @@ const TYPE_COLORS: Record<string, string> = {
 function typeColor(type?: string): string {
   if (!type) return "#64748b";
   return TYPE_COLORS[type.toLowerCase()] || "#64748b";
-}
-
-function isMoveOption(opt: PracticeActionOption): boolean {
-  if (opt.kind === "move") return true;
-  if (opt.kind === "switch") return false;
-  return opt.id.startsWith("move");
 }
 
 function useHotkeys(handler: (key: string) => void) {
@@ -42,6 +48,47 @@ function useHotkeys(handler: (key: string) => void) {
 function secondsLeft(expiresAt?: string): number | null {
   if (!expiresAt) return null;
   return Math.max(0, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 1000));
+}
+
+const INTRO_MS = 2200;
+
+// --- sprite chain (gen5ani -> ani -> dex) ---------------------------------
+function spriteUrls(speciesId: string): string[] {
+  if (!speciesId) return [];
+  return [
+    `https://play.pokemonshowdown.com/sprites/gen5ani/${speciesId}.gif`,
+    `https://play.pokemonshowdown.com/sprites/ani/${speciesId}.gif`,
+    `https://play.pokemonshowdown.com/sprites/dex/${speciesId}.png`,
+  ];
+}
+
+function MonSprite({ speciesId, name, size = 40 }: { speciesId: string; name: string; size?: number }) {
+  const urls = spriteUrls(speciesId);
+  const [idx, setIdx] = useState(0);
+  const [failed, setFailed] = useState(urls.length === 0);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => { setIdx(0); setFailed(urls.length === 0); setLoaded(false); }, [speciesId]);
+  if (failed || !urls[idx]) {
+    return (
+      <div className="mon-icon fallback" style={{ width: size, height: size }} title={name}>
+        <span className="mon-icon-initial">{name.charAt(0).toUpperCase()}</span>
+      </div>
+    );
+  }
+  return (
+    <span className="mon-icon" style={{ width: size, height: size }}>
+      {!loaded && <span className="mon-icon-shimmer" />}
+      <img
+        className={`mon-icon-img ${loaded ? "" : "loading"}`}
+        src={urls[idx]}
+        width={size}
+        height={size}
+        alt={name}
+        onLoad={() => setLoaded(true)}
+        onError={() => (idx + 1 < urls.length ? setIdx(idx + 1) : setFailed(true))}
+      />
+    </span>
+  );
 }
 
 export default function Practice() {
@@ -67,6 +114,7 @@ export default function Practice() {
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
   const [submitting, setSubmitting] = useState("");
+  const [introDone, setIntroDone] = useState(false);
 
   const selectedFormat = formats.find((fmt) => fmt.id === format);
   const effectiveFormat = customFormat.trim() || format;
@@ -154,6 +202,15 @@ export default function Practice() {
       .catch(() => undefined);
   }, [battle, events.length, id]);
 
+  // Pre-battle intro: brief overlay so the user sees "Battle starting"
+  // before any action panel appears. Resets on battle id change.
+  useEffect(() => {
+    setIntroDone(false);
+    if (!id) return;
+    const t = window.setTimeout(() => setIntroDone(true), INTRO_MS);
+    return () => window.clearTimeout(t);
+  }, [id]);
+
   const teamOptions = useMemo(
     () => teams.filter((team) => !team.format || team.format === effectiveFormat),
     [effectiveFormat, teams],
@@ -196,11 +253,11 @@ export default function Practice() {
   };
 
   const moveOptions = useMemo(
-    () => (action ? action.options.filter(isMoveOption) : []),
+    () => (action ? action.options.filter((o): o is Extract<PracticeOption, { kind: "move" }> => o.kind === "move") : []),
     [action],
   );
   const switchOptions = useMemo(
-    () => (action ? action.options.filter((o) => !isMoveOption(o)) : []),
+    () => (action ? action.options.filter((o): o is Extract<PracticeOption, { kind: "switch" }> => o.kind === "switch") : []),
     [action],
   );
 
@@ -211,11 +268,11 @@ export default function Practice() {
     if (opt) void submitAction(opt.id);
   });
 
-  function renderMoveButton(opt: PracticeActionOption, index: number) {
-    const color = typeColor(opt.type);
-    const pp = opt.pp;
-    const ppText = pp ? `${pp.current}/${pp.max}` : null;
-    const disabled = Boolean(submitting);
+  function renderMoveButton(opt: Extract<PracticeOption, { kind: "move" }>, index: number) {
+    const move = opt.move as PracticeMoveOption;
+    const color = typeColor(move.type);
+    const ppText = move.pp ? `${move.pp.current}/${move.pp.max}` : null;
+    const disabled = Boolean(submitting) || move.disabled;
     return (
       <button
         type="button"
@@ -223,19 +280,140 @@ export default function Practice() {
         disabled={disabled}
         onClick={() => void submitAction(opt.id)}
         key={opt.id}
+        title={move.disabled ? move.disabled_reason : move.label}
         style={{
           borderColor: color,
           background: `linear-gradient(180deg, ${color}28, ${color}10)`,
         }}
       >
         <span className="move-key" aria-hidden="true">{index + 1}</span>
-        <span className="move-label">{submitting === opt.id ? "Submitting..." : opt.label}</span>
+        <span className="move-label">{submitting === opt.id ? "Submitting..." : move.label}</span>
         <span className="move-meta">
-          {opt.type && <span className="move-type" style={{ background: color }}>{opt.type}</span>}
+          {move.type && <span className="move-type" style={{ background: color }}>{move.type}</span>}
           {ppText && <span className="move-pp">PP {ppText}</span>}
         </span>
       </button>
     );
+  }
+
+  function renderSwitchButton(opt: Extract<PracticeOption, { kind: "switch" }>, index: number, hotkey: number) {
+    const mon = opt.pokemon as PracticeSwitchPokemon;
+    const primaryType = mon.types[0];
+    const color = typeColor(primaryType);
+    const disabled = Boolean(submitting) || mon.fainted;
+    const label = mon.fainted ? `${mon.name} · fainted` : mon.name;
+    return (
+      <button
+        type="button"
+        className={`switch-button ${mon.fainted ? "fainted" : ""}`}
+        disabled={disabled}
+        key={opt.id}
+        onClick={() => void submitAction(opt.id)}
+        title={`Switch to ${mon.name}`}
+        style={{ borderColor: mon.fainted ? "var(--line)" : color }}
+      >
+        <span className="switch-key" aria-hidden="true">{hotkey}</span>
+        <MonSprite speciesId={mon.species_id} name={mon.name} size={42} />
+        <span className="switch-body">
+          <span className="switch-label">{submitting === opt.id ? "Submitting..." : label}</span>
+          <span className="switch-meta">
+            <span className="hp-track small"><span className="hp-fill" style={{ width: `${mon.hp_percent}%`, background: mon.fainted ? "var(--muted)" : "var(--green)" }} /></span>
+            <span className="switch-hp">{mon.hp_percent}%</span>
+            {mon.types.length > 0 && <span className="switch-type" style={{ background: color }}>{mon.types[0]}</span>}
+            {mon.types[1] && <span className="switch-type" style={{ background: typeColor(mon.types[1]) }}>{mon.types[1]}</span>}
+            {mon.status && mon.status !== "active" && !mon.fainted && <span className="switch-status">{mon.status}</span>}
+          </span>
+        </span>
+      </button>
+    );
+  }
+
+  // ----- Renders one of three phases for the action card ------------------
+  function renderActionBody() {
+    if (!action) {
+      if (battle && terminalStatuses.has(battle.status)) {
+        return <div className="action-waiting muted">Battle {battle.status}.</div>;
+      }
+      return (
+        <div className="action-waiting">
+          <span className="spinner" aria-hidden="true" />
+          Waiting for Showdown to request your next action...
+        </div>
+      );
+    }
+
+    if (action.phase === "team_preview") {
+      return (
+        <>
+          <div className="action-timer" role="timer" aria-live="polite">
+            <strong>{remaining ?? 0}s</strong> left to pick leads
+          </div>
+          <div className="action-section">
+            <h3 className="action-section-title">
+              Choose {action.pick} lead{action.pick === 1 ? "" : "s"}
+              <span className="muted"> press 1–{action.options.length}</span>
+            </h3>
+            <p className="muted small">
+              In Showdown, doubles lead preview lets you decide which Pokémon open the battle. The rest stay on the bench until you switch them in.
+            </p>
+            <div className="switches-grid">
+              {switchOptions.map((opt, i) => renderSwitchButton(opt, i, i + 1))}
+            </div>
+          </div>
+        </>
+      );
+    }
+
+    if (action.phase === "switch") {
+      return (
+        <>
+          <div className="action-timer" role="timer" aria-live="polite">
+            <strong>{remaining ?? 0}s</strong> left to replace your fainted Pokémon
+          </div>
+          <div className="action-section">
+            <h3 className="action-section-title">
+              Send in a replacement
+              <span className="muted"> press 1–{action.options.length}</span>
+            </h3>
+            <div className="switches-grid">
+              {switchOptions.map((opt, i) => renderSwitchButton(opt, i, i + 1))}
+            </div>
+          </div>
+        </>
+      );
+    }
+
+    if (action.phase === "move") {
+      return (
+        <>
+          <div className="action-timer" role="timer" aria-live="polite">
+            <strong>{remaining ?? 0}s</strong> left to choose
+            <span className="muted"> · miss the timer and the practice battle is forfeit</span>
+          </div>
+          <div className="action-section">
+            <h3 className="action-section-title">Moves <span className="muted">press 1–{moveOptions.length}</span></h3>
+            {moveOptions.length === 0 && <p className="muted">No moves available.</p>}
+            <div className="moves-grid">
+              {moveOptions.map((opt, i) => renderMoveButton(opt, i))}
+            </div>
+          </div>
+          {switchOptions.length > 0 && (
+            <div className="action-section">
+              <h3 className="action-section-title">
+                Or switch out
+                <span className="muted"> press {moveOptions.length + 1}–{action.options.length}</span>
+              </h3>
+              <div className="switches-grid">
+                {switchOptions.map((opt, i) => renderSwitchButton(opt, i, moveOptions.length + i + 1))}
+              </div>
+            </div>
+          )}
+        </>
+      );
+    }
+
+    // phase === "free"
+    return <div className="action-waiting muted">No action required.</div>;
   }
 
   if (!user) {
@@ -243,63 +421,56 @@ export default function Practice() {
   }
 
   if (id) {
+    const phaseLabel =
+      action?.phase === "team_preview" ? "Choose your leads"
+      : action?.phase === "switch" ? "Forced switch"
+      : action?.phase === "move" ? "Choose your action"
+      : battle && !terminalStatuses.has(battle.status) ? "Waiting"
+      : "Battle ended";
+
     return (
       <main className="page">
-        <section className="hero"><span className="eyebrow">Practice battle</span><h1>{id}</h1><p>Choose within 30 seconds whenever the battle asks for your move.</p></section>
+        <section className="hero">
+          <span className="eyebrow">Practice battle</span>
+          <h1>{id}</h1>
+          <p>You vs {battle?.player2_username || "AI"} · {battle?.format || "loading…"}</p>
+        </section>
         {error && <div className="notice error">{error}</div>}
         <section className="grid two">
           <Battlefield battle={battle} events={events} />
-          <div className="card stack action-card">
-            <div className="action-head">
-              <h2>Controls</h2>
-              <span className={`ws-dot ws-${wsState}`} title={`WebSocket: ${wsState}`} />
-            </div>
-            {battle && <div className="row"><span className="badge">{battle.status}</span><span>{battle.format}</span><span>{battle.turns ?? 0} turns</span></div>}
-            {battle?.winner && <div className="notice">Winner: <strong>{battle.winner}</strong></div>}
-            {action && (
-              <div className="action-timer" role="timer" aria-live="polite">
-                <strong>{remaining ?? 0}s</strong> left to choose
-                <span className="muted"> · miss the timer and the practice battle is forfeit</span>
+          {introDone ? (
+            <div className="card stack action-card">
+              <div className="action-head">
+                <h2>{phaseLabel}</h2>
+                <span className={`ws-dot ws-${wsState}`} title={`WebSocket: ${wsState}`} />
               </div>
-            )}
-            {!action && battle && !terminalStatuses.has(battle.status) && (
+              {battle && <div className="row"><span className="badge">{battle.status}</span><span>{battle.format}</span><span>{battle.turns ?? 0} turns</span></div>}
+              {battle?.winner && <div className="notice">Winner: <strong>{battle.winner}</strong></div>}
+              {renderActionBody()}
+            </div>
+          ) : (
+            <div className="card stack action-card intro-card" data-testid="battle-intro">
+              <div className="action-head">
+                <h2>Battle starting</h2>
+                <span className={`ws-dot ws-${wsState}`} title={`WebSocket: ${wsState}`} />
+              </div>
+              <div className="intro-line">
+                <span className="intro-eyebrow">You</span>
+                <strong>{battle?.player1_username || "you"}</strong>
+                <span className="vs">vs</span>
+                <strong>{battle?.player2_username || "AI"}</strong>
+                <span className="intro-eyebrow">Opponent</span>
+              </div>
+              <div className="intro-format">{battle?.format || "loading format…"}</div>
               <div className="action-waiting">
                 <span className="spinner" aria-hidden="true" />
-                Waiting for Showdown to request your next action...
+                Sending Pokémon to the field…
               </div>
-            )}
-            {action && (
-              <>
-                <div className="action-section">
-                  <h3 className="action-section-title">Moves <span className="muted">press 1–4</span></h3>
-                  {moveOptions.length === 0 && <p className="muted">No moves available.</p>}
-                  <div className="moves-grid">
-                    {moveOptions.map((opt, i) => renderMoveButton(opt, i))}
-                  </div>
-                </div>
-                {switchOptions.length > 0 && (
-                  <div className="action-section">
-                    <h3 className="action-section-title">Switch <span className="muted">press {moveOptions.length + 1}–{action.options.length}</span></h3>
-                    <div className="switches-row">
-                      {switchOptions.map((opt, i) => (
-                        <button
-                          type="button"
-                          className="switch-button"
-                          disabled={Boolean(submitting)}
-                          key={opt.id}
-                          onClick={() => void submitAction(opt.id)}
-                          title={opt.message}
-                        >
-                          <span className="switch-key" aria-hidden="true">{moveOptions.length + i + 1}</span>
-                          <span className="switch-label">{submitting === opt.id ? "Submitting..." : opt.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
+              <p className="muted small">
+                Move actions unlock once both leads are in. Until then, you can review your team.
+              </p>
+            </div>
+          )}
         </section>
         <section className="grid two" style={{ marginTop: 16 }}>
           <div className="card"><h2>Battle narration</h2><div className="event-log">{timeline.length === 0 && <p>Waiting for battle events...</p>}{timeline.map((event, i) => <div className="event-line" key={`${event.kind}-${i}`}>{formatEvent(event)}</div>)}</div></div>
