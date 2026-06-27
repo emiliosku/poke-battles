@@ -238,7 +238,10 @@ class TestMeta:
         # (which is skipped in CI without POKE_BATTLES_RUN_SPRITE_PROBE).
         # The empty-state behavior is also covered: the route returns
         # an empty list when nothing has been probed yet.
+        if os.environ.get("POKE_BATTLES_RUN_SPRITE_PROBE") != "1":
+            pytest.skip("set POKE_BATTLES_RUN_SPRITE_PROBE=1 to exercise the filter test")
         body = client.get("/sprites/status", params={"q": "hatterene", "type": "psychic"}).json()
+        assert body["count"] >= 1
         for entry in body["results"]:
             assert "hatter" in entry["name"].lower() or "hatter" in entry["species_id"]
             assert "Psychic" in entry["types"]
