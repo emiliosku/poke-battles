@@ -13,6 +13,7 @@ from pokeapi.routes import (
     practice,
     replays,
     simulations,
+    sprites,
     teams,
     ws,
 )
@@ -27,6 +28,7 @@ router.include_router(leaderboard.router)
 router.include_router(meta.router)
 router.include_router(practice.router)
 router.include_router(replays.router)
+router.include_router(sprites.router)
 router.include_router(ws.router)
 
 __all__ = ["router"]

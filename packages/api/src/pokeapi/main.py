@@ -21,6 +21,7 @@ from pokeapi.routes import (
     practice,
     replays,
     simulations,
+    sprites,
     teams,
     ws,
 )
@@ -96,6 +97,7 @@ def create_app() -> FastAPI:
     app.include_router(meta.router)
     app.include_router(practice.router)
     app.include_router(replays.router)
+    app.include_router(sprites.router)
     app.include_router(ws.router)
 
     @app.get("/", response_model=HealthResponse, tags=["meta"])

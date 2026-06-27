@@ -7,7 +7,10 @@ import Practice from "./pages/Practice";
 import Replays from "./pages/Replays";
 import SignIn from "./pages/SignIn";
 import Simulations from "./pages/Simulations";
+import SpriteDebug from "./pages/SpriteDebug";
 import Teams from "./pages/Teams";
+
+const SHOW_DEBUG_TOOLS = import.meta.env.DEV;
 
 function Nav() {
   const { user, loading, logout } = useAuth();
@@ -25,6 +28,7 @@ function Nav() {
         <NavLink to="/simulations">Simulations</NavLink>
         <NavLink to="/leaderboard">Leaderboard</NavLink>
         <NavLink to="/replays">Replays</NavLink>
+        {SHOW_DEBUG_TOOLS && <NavLink to="/debug/sprites">Debug</NavLink>}
       </nav>
       <div className="userbox">
         {loading && <span>Checking session...</span>}
@@ -74,6 +78,7 @@ export default function App() {
         <Route path="/simulations" element={<Simulations />} />
         <Route path="/leaderboard" element={<Leaderboard />} />
         <Route path="/replays" element={<Replays />} />
+        {SHOW_DEBUG_TOOLS && <Route path="/debug/sprites" element={<SpriteDebug />} />}
         <Route path="*" element={<NotFound />} />
       </Routes>
     </div>

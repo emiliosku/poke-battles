@@ -182,6 +182,23 @@ class PokedexResponse(BaseModel):
     pokemon: list[PokedexEntry]
 
 
+class SpriteResultEntry(BaseModel):
+    species_id: str
+    name: str
+    types: list[str] = Field(default_factory=list)
+    canonical_slug: str
+    derived_slug: str
+    canonical_hit: str | None
+    derived_hit: str | None
+
+
+class SpriteStatusResponse(BaseModel):
+    checked_at: float
+    count: int
+    duration_s: float
+    results: list[SpriteResultEntry]
+
+
 class ModelResponse(BaseModel):
     name: str
     provider: str
@@ -214,6 +231,8 @@ __all__ = [
     "ReplayResponse",
     "SimulationCreate",
     "SimulationResponse",
+    "SpriteResultEntry",
+    "SpriteStatusResponse",
     "TeamCreate",
     "TeamPreviewRequest",
     "TeamPreviewResponse",

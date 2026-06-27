@@ -189,6 +189,50 @@ class TestMeta:
         assert models.status_code == 200
         assert any(model["name"] == "random" for model in models.json())
 
+    def test_pokedex_lists_canonical_species(self, client: TestClient) -> None:
+        r = client.get("/pokedex")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["count"] > 1000
+        ids = {p["species_id"] for p in body["pokemon"]}
+        for must in (
+            "pikachu",
+            "garchomp",
+            "charizard",
+            "charizardmegax",
+            "slowkinggalar",
+            "aerodactylmega",
+        ):
+            assert must in ids, f"{must} missing from /pokedex"
+
+    def test_sprite_status_reports_slug_results(self, client: TestClient) -> None:
+        # Hatterene is a vanilla species whose canonical species_id
+        # resolves on the CDN; Galarian Slowking's canonical id does
+        # NOT resolve but its derived "slowking-galar" form does.
+        # The debug endpoint must report both cases accurately.
+        r = client.get("/sprites/status")
+        assert r.status_code == 200
+        body = r.json()
+        assert "checked_at" in body and "results" in body
+        by_sid = {p["species_id"]: p for p in body["results"]}
+        assert by_sid["hatterene"]["canonical_hit"] is not None
+        assert by_sid["hatterene"]["canonical_hit"].startswith("gen5ani")
+        galar = by_sid["slowkinggalar"]
+        assert galar["canonical_hit"] is None, "Showdown CDN 404s slowkinggalar"
+        assert galar["derived_hit"] is not None
+        assert galar["derived_hit"].endswith("slowking-galar.gif")
+
+    def test_sprite_status_filters(self, client: TestClient) -> None:
+        # Substring + type filters narrow the result set without
+        # triggering a fresh CDN probe.
+        r = client.get("/sprites/status", params={"q": "hatterene", "type": "psychic"})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["count"] >= 1
+        for entry in body["results"]:
+            assert "hatter" in entry["name"].lower() or "hatter" in entry["species_id"]
+            assert "Psychic" in entry["types"]
+
 
 class TestAuth:
     def test_me_anonymous(self, client: TestClient) -> None:
