@@ -32,6 +32,24 @@ class TeamResponse(BaseModel):
     pokemon_count: int
 
 
+class TeamPreviewRequest(BaseModel):
+    paste: str = Field(min_length=1, description="Showdown paste format")
+
+
+class PokemonPreview(BaseModel):
+    nickname: str | None
+    species: str
+    species_id: str
+    item: str | None
+    ability: str
+    types: list[str] = Field(default_factory=list)
+    moves: list[str] = Field(default_factory=list)
+
+
+class TeamPreviewResponse(BaseModel):
+    pokemon: list[PokemonPreview]
+
+
 class UserResponse(BaseModel):
     id: str
     display_name: str | None = None
@@ -172,6 +190,7 @@ __all__ = [
     "HealthResponse",
     "LeaderboardEntry",
     "ModelResponse",
+    "PokemonPreview",
     "PracticeActionResponse",
     "PracticeActionSubmit",
     "PracticeBattleCreate",
@@ -179,6 +198,8 @@ __all__ = [
     "SimulationCreate",
     "SimulationResponse",
     "TeamCreate",
+    "TeamPreviewRequest",
+    "TeamPreviewResponse",
     "TeamResponse",
     "UserResponse",
 ]

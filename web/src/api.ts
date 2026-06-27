@@ -23,6 +23,20 @@ export interface Team {
   created_at: string;
 }
 
+export interface PokemonPreview {
+  nickname: string | null;
+  species: string;
+  species_id: string;
+  item: string | null;
+  ability: string;
+  types: string[];
+  moves: string[];
+}
+
+export interface TeamPreviewResponse {
+  pokemon: PokemonPreview[];
+}
+
 export interface BattleResponse {
   id: string;
   format: string;
@@ -240,6 +254,8 @@ export const api = {
     list: () => r<Team[]>("/teams"),
     create: (data: { name: string; paste: string; format?: string; is_public?: boolean }) =>
       r<Team>("/teams", { method: "POST", body: JSON.stringify(data) }),
+    preview: (paste: string) =>
+      r<TeamPreviewResponse>("/teams/preview", { method: "POST", body: JSON.stringify({ paste }) }),
     get: (id: number) => r<Team>(`/teams/${id}`),
     delete: (id: number) => r<void>(`/teams/${id}`, { method: "DELETE" }),
   },

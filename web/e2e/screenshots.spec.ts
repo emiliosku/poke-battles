@@ -5,6 +5,8 @@ import {
   FORMATS,
   MODELS,
   TEAMS,
+  TEAM_PASTE,
+  TEAM_PREVIEW,
   LEADERBOARD,
   HEALTH,
   BATTLE_DOUBLES_FINISHED,
@@ -58,6 +60,7 @@ async function mockApi(page: Page, opts: { signedIn: boolean }) {
     // Teams
     if (path === "/api/teams" && method === "GET") return json(200, TEAMS);
     if (path === "/api/teams" && method === "POST") return json(201, TEAMS[0]);
+    if (path === "/api/teams/preview" && method === "POST") return json(200, TEAM_PREVIEW);
 
     // Battles
     const battleById =
@@ -202,25 +205,49 @@ test.describe("poke-battles UI: every screen", () => {
     await shot(page, "11-teams-signed-in");
   });
 
+  test("teams page — create expanded with paste preview", async ({ page }) => {
+    await mockApi(page, { signedIn: true });
+    await page.goto("/teams");
+    await page.waitForLoadState("networkidle");
+    await page.getByRole("button", { name: "Create team" }).click();
+    await page.locator('textarea').fill(TEAM_PASTE);
+    await expect(page.getByTestId("paste-preview-list")).toBeVisible();
+    // The preview kicks off 3 URL fetches per mon (gen5ani → ani → dex) on
+    // Showdown's CDN; wait for them to settle so the screenshot doesn't
+    // catch the orbs mid-load.
+    await settleSprites(page, 15_000);
+    await shot(page, "12-teams-create-with-preview");
+  });
+
+  test("teams page — team card expanded inline", async ({ page }) => {
+    await mockApi(page, { signedIn: true });
+    await page.goto("/teams");
+    await page.waitForLoadState("networkidle");
+    await page.locator(".team-card").first().click();
+    await expect(page.locator(".team-card.expanded .paste-preview-list, .team-card.expanded [data-testid='paste-preview-list']").first()).toBeVisible();
+    await settleSprites(page, 15_000);
+    await shot(page, "13-teams-card-expanded");
+  });
+
   test("signed-in battle matchmaker", async ({ page }) => {
     await mockApi(page, { signedIn: true });
     await page.goto("/battle");
     await page.waitForLoadState("networkidle");
-    await shot(page, "12-battle-matchmaker");
+    await shot(page, "14-battle-matchmaker");
   });
 
   test("signed-in practice matchmaker", async ({ page }) => {
     await mockApi(page, { signedIn: true });
     await page.goto("/practice");
     await page.waitForLoadState("networkidle");
-    await shot(page, "13-practice-matchmaker");
+    await shot(page, "15-practice-matchmaker");
   });
 
   test("signed-in simulations", async ({ page }) => {
     await mockApi(page, { signedIn: true });
     await page.goto("/simulations");
     await page.waitForLoadState("networkidle");
-    await shot(page, "14-simulations-signed-in");
+    await shot(page, "16-simulations-signed-in");
   });
 
   test("live battle view (sprite + attack focus)", async ({ page }) => {
@@ -237,7 +264,7 @@ test.describe("poke-battles UI: every screen", () => {
     // The sprite fallback chain makes up to 3 cross-origin requests per mon;
     // on a cold browser context the first connection pays a TLS/setup tax.
     await settleSprites(page, 15_000);
-    await shot(page, "15-battle-view-doubles");
+    await shot(page, "17-battle-view-doubles");
   });
 
   test("replay page (loaded)", async ({ page }) => {
@@ -254,7 +281,7 @@ test.describe("poke-battles UI: every screen", () => {
     await page.getByRole("button", { name: /Load replay/i }).click();
     await replaysResp;
     await settleSprites(page, 4000);
-    await shot(page, "16-replay-loaded");
+    await shot(page, "18-replay-loaded");
   });
 
   test("practice battle view (action panel focus)", async ({ page }) => {
@@ -265,7 +292,7 @@ test.describe("poke-battles UI: every screen", () => {
     // The intro overlay shows for ~2.2s, then the action card reveals.
     await expect(page.getByRole("button", { name: /Thunderbolt/i })).toBeVisible();
     await settleSprites(page, 4000);
-    await shot(page, "17-practice-action-panel");
+    await shot(page, "19-practice-action-panel");
   });
 
   test("practice battle view (mobile viewport)", async ({ browser }) => {
@@ -281,7 +308,7 @@ test.describe("poke-battles UI: every screen", () => {
     await page.goto(`/practice/${PRACTICE_ID}`);
     await expect(page.getByRole("button", { name: /Thunderbolt/i })).toBeVisible();
     await settleSprites(page, 4000);
-    await shot(page, "18-practice-action-mobile");
+    await shot(page, "20-practice-action-mobile");
     await ctx.close();
   });
 
@@ -302,7 +329,7 @@ test.describe("poke-battles UI: every screen", () => {
     await page.goto(`/battle/${DEMO_BATTLE_ID}`);
     await replaysResp;
     await settleSprites(page, 4000);
-    await shot(page, "19-battle-view-mobile");
+    await shot(page, "21-battle-view-mobile");
     await ctx.close();
   });
 
@@ -313,7 +340,7 @@ test.describe("poke-battles UI: every screen", () => {
     // Capture before the intro overlay (2.2s) lifts.
     await expect(page.getByTestId("battle-intro")).toBeVisible();
     await settleSprites(page, 1000);
-    await shot(page, "20-practice-intro");
+    await shot(page, "22-practice-intro");
   });
 
   test("practice battle view — team preview phase", async ({ page }) => {
@@ -323,7 +350,7 @@ test.describe("poke-battles UI: every screen", () => {
     // The first switch option's name appears in the grid.
     await expect(page.getByRole("button", { name: /Incineroar/i })).toBeVisible();
     await settleSprites(page, 4000);
-    await shot(page, "21-practice-team-preview");
+    await shot(page, "23-practice-team-preview");
   });
 
   test("practice battle view — forced switch phase", async ({ page }) => {
@@ -334,6 +361,6 @@ test.describe("poke-battles UI: every screen", () => {
     await expect(page.getByRole("button", { name: /Garchomp/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /Thunderbolt/i })).toHaveCount(0);
     await settleSprites(page, 4000);
-    await shot(page, "22-practice-forced-switch");
+    await shot(page, "24-practice-forced-switch");
   });
 });

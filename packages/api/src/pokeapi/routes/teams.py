@@ -7,8 +7,15 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pokeapi.auth import require_current_user
 from pokeapi.db import session_scope
 from pokeapi.db.models import Team, User
-from pokeapi.schemas import TeamCreate, TeamResponse
+from pokeapi.schemas import (
+    PokemonPreview,
+    TeamCreate,
+    TeamPreviewRequest,
+    TeamPreviewResponse,
+    TeamResponse,
+)
 from pokecore import parse_team
+from pokecore.teams import PokemonSet
 
 router = APIRouter(prefix="/teams", tags=["teams"])
 
@@ -25,6 +32,18 @@ def _team_to_response(team: Team) -> TeamResponse:
     )
 
 
+def _pokemon_to_preview(pkmn: PokemonSet) -> PokemonPreview:
+    return PokemonPreview(
+        nickname=pkmn.nickname,
+        species=pkmn.species,
+        species_id=pkmn.species_id,
+        item=pkmn.item,
+        ability=pkmn.ability,
+        types=[t.value for t in pkmn.types],
+        moves=[m.name for m in pkmn.moves],
+    )
+
+
 @router.get("", response_model=list[TeamResponse])
 async def list_teams(
     request: Request,
@@ -35,6 +54,18 @@ async def list_teams(
         q = session.query(Team).filter(Team.owner_id == user.id)
         teams = q.order_by(Team.created_at.desc()).all()
         return [_team_to_response(t) for t in teams]
+
+
+@router.post("/preview", response_model=TeamPreviewResponse)
+async def preview_team(
+    body: TeamPreviewRequest,
+    user: User = Depends(require_current_user),
+) -> TeamPreviewResponse:
+    try:
+        team = parse_team(body.paste)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid paste: {exc}") from exc
+    return TeamPreviewResponse(pokemon=[_pokemon_to_preview(p) for p in team.pokemon])
 
 
 @router.post("", response_model=TeamResponse, status_code=status.HTTP_201_CREATED)

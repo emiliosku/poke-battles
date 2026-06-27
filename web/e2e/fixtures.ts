@@ -29,6 +29,66 @@ export const TEAMS = [
   { id: 3, name: "Doubles Sun", format: "gen9doublesou", paste: "Torkoal @ Heat Rock\n- Stealth Rock\n- Earthquake\n- Body Press\n- Yawn", pokemon_count: 6, is_public: true, created_at: "2026-02-01T09:21:00Z" },
 ];
 
+export const TEAM_PASTE = `Garchomp @ Choice Scarf
+Ability: Rough Skin
+EVs: 252 Atk / 4 SpD / 252 Spe
+Jolly Nature
+- Earthquake
+- Outrage
+- Stone Edge
+- Stealth Rock
+
+Pikachu @ Light Ball
+Ability: Static
+EVs: 252 SpA / 4 SpD / 252 Spe
+Timid Nature
+- Thunder
+- Surf
+- Hidden Power Ice
+- Volt Tackle
+
+Iron Treads
+Ability: Quark Drive
+EVs: 252 Atk / 4 SpD / 252 Spe
+Jolly Nature
+- Earthquake
+- Iron Head
+- Rapid Spin
+- Stealth Rock
+`;
+
+export const TEAM_PREVIEW = {
+  pokemon: [
+    {
+      nickname: null,
+      species: "Garchomp",
+      species_id: "garchomp",
+      item: "Choice Scarf",
+      ability: "Rough Skin",
+      types: ["dragon", "ground"],
+      moves: ["Earthquake", "Outrage", "Stone Edge", "Stealth Rock"],
+    },
+    {
+      nickname: null,
+      species: "Pikachu",
+      species_id: "pikachu",
+      item: "Light Ball",
+      ability: "Static",
+      types: ["electric"],
+      moves: ["Thunder", "Surf", "Hidden Power Ice", "Volt Tackle"],
+    },
+    {
+      nickname: null,
+      species: "Iron Treads",
+      species_id: "irontreads",
+      item: null,
+      ability: "Quark Drive",
+      types: ["ground", "steel"],
+      moves: ["Earthquake", "Iron Head", "Rapid Spin", "Stealth Rock"],
+    },
+  ],
+};
+
 export const LEADERBOARD = [
   { subject: "gpt-4o", format: "gen9randombattle", rating: 1742, rd: 38, games: 412 },
   { subject: "claude-3-5-sonnet", format: "gen9randombattle", rating: 1711, rd: 41, games: 397 },

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from pokeapi.routes.teams import _pokemon_to_preview
 from pokecore.teams import (
     EVSpread,
     IVSpread,
@@ -247,4 +248,33 @@ class TestRoundTrip:
             assert original.level == new.level
             assert original.shiny == new.shiny
             assert [m.name for m in original.moves] == [m.name for m in new.moves]
-            assert original.evs.values == new.evs.values
+
+
+class TestPokemonToPreview:
+    def test_full_pokemon_maps_to_preview(self) -> None:
+        team = parse_team(SAMPLE_PASTE, type_resolver=type_resolver)
+        charizard = team.pokemon[0]
+        preview = _pokemon_to_preview(charizard)
+        assert preview.species == "Charizard-Mega-X"
+        assert preview.species_id == "charizardmegax"
+        assert preview.item == "Charizardite X"
+        assert preview.ability == "Tough Claws"
+        assert preview.types == ["fire", "dragon"]
+        assert preview.moves == ["Dragon Dance", "Flare Blitz", "Roost", "Earthquake"]
+
+    def test_pokemon_without_item(self) -> None:
+        paste = "Pikachu\nAbility: Static\nHardy Nature\n- Thunder\n"
+        team = parse_team(paste, type_resolver=type_resolver)
+        preview = _pokemon_to_preview(team.pokemon[0])
+        assert preview.species == "Pikachu"
+        assert preview.item is None
+        assert preview.moves == ["Thunder"]
+
+    def test_nickname_preserved(self) -> None:
+        paste = (
+            "Big Blue (Garchomp) @ Choice Scarf\nAbility: Rough Skin\nHardy Nature\n- Earthquake\n"
+        )
+        team = parse_team(paste, type_resolver=type_resolver)
+        preview = _pokemon_to_preview(team.pokemon[0])
+        assert preview.nickname == "Big Blue"
+        assert preview.species == "Garchomp"

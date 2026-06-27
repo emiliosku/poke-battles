@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
 import type { BattleEvent, BattleResponse } from "./api";
+import { PokemonSprite } from "./sprites";
 
 interface SlotState {
   active: string;
@@ -125,56 +125,11 @@ function applyEvent(sides: [SideState, SideState], event: BattleEvent): [SideSta
 
 // Showdown ships several sprite paths. gen5ani is missing for many Gen 9 mons,
 // so we walk the chain gen5ani → ani (newer animated) → dex (static png).
-function spriteUrls(speciesId: string): string[] {
-  if (!speciesId) return [];
-  return [
-    `https://play.pokemonshowdown.com/sprites/gen5ani/${speciesId}.gif`,
-    `https://play.pokemonshowdown.com/sprites/ani/${speciesId}.gif`,
-    `https://play.pokemonshowdown.com/sprites/dex/${speciesId}.png`,
-  ];
-}
+// The chain-fallback renderer lives in ./sprites.tsx so the Teams preview
+// can reuse the exact same behaviour.
 
-function PokemonSprite({ slot }: { slot: SlotState }) {
-  const urls = spriteUrls(slot.speciesId);
-  const [idx, setIdx] = useState(0);
-  const [allFailed, setAllFailed] = useState(false);
-  // When the speciesId flips from empty to a real value (or to a different
-  // mon), reset the chain and the failure flag so the new sprite can load.
-  useEffect(() => {
-    setIdx(0);
-    setAllFailed(false);
-  }, [slot.speciesId]);
-  const url = urls[idx];
-  if (!url) {
-    // No species yet — slot is empty (e.g. "Awaiting switch").
-    return (
-      <div className="sprite-orb empty" title={slot.active}>
-        <span className="sprite-orb-name">{slot.active}</span>
-      </div>
-    );
-  }
-  if (allFailed) {
-    // All sprite URLs exhausted without success.
-    return (
-      <div className="sprite-orb fallback" title={slot.active}>
-        <span className="sprite-orb-name">{slot.active}</span>
-      </div>
-    );
-  }
-  return (
-    <img
-      className="pokemon-sprite"
-      src={url}
-      alt={slot.active}
-      onError={() => {
-        if (idx + 1 < urls.length) {
-          setIdx(idx + 1);
-        } else {
-          setAllFailed(true);
-        }
-      }}
-    />
-  );
+function BattleSlotSprite({ slot }: { slot: SlotState }) {
+  return <PokemonSprite speciesId={slot.speciesId} label={slot.active} />;
 }
 
 export function battleSidesFromEvents(events: BattleEvent[]): [SideState, SideState] {
@@ -193,7 +148,7 @@ function CombatSlot({ slot }: { slot: SlotState }) {
     <div className="combat-slot">
       <span className="badge">Slot {slot.slot.toUpperCase()}</span>
       <h3 className="combat-name">{slot.active}</h3>
-      <PokemonSprite slot={slot} />
+      <BattleSlotSprite slot={slot} />
       <div className="hp-track"><div className="hp-fill" style={{ width: `${slot.hp}%` }} /></div>
       <p className="combat-status">{slot.hp}% HP · {slot.status}</p>
       {slot.lastMove && <p className="combat-last">Last move: {slot.lastMove}</p>}
