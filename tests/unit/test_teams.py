@@ -11,6 +11,7 @@ from pokecore.teams import (
     _parse_header,
     format_team,
     parse_team,
+    sprite_id,
 )
 from pokecore.types import Nature, Stat, Type, TypePair
 
@@ -257,6 +258,7 @@ class TestPokemonToPreview:
         preview = _pokemon_to_preview(charizard)
         assert preview.species == "Charizard-Mega-X"
         assert preview.species_id == "charizardmegax"
+        assert preview.sprite_id == "charizard-megax"
         assert preview.item == "Charizardite X"
         assert preview.ability == "Tough Claws"
         assert preview.types == ["fire", "dragon"]
@@ -267,6 +269,7 @@ class TestPokemonToPreview:
         team = parse_team(paste, type_resolver=type_resolver)
         preview = _pokemon_to_preview(team.pokemon[0])
         assert preview.species == "Pikachu"
+        assert preview.sprite_id == "pikachu"
         assert preview.item is None
         assert preview.moves == ["Thunder"]
 
@@ -278,3 +281,66 @@ class TestPokemonToPreview:
         preview = _pokemon_to_preview(team.pokemon[0])
         assert preview.nickname == "Big Blue"
         assert preview.species == "Garchomp"
+        assert preview.sprite_id == "garchomp"
+
+
+class TestSpriteSlug:
+    """The sprite_id is what hits the Showdown CDN; it must lower-case
+    the species, keep the form-separating dashes, and strip dots /
+    spaces / apostrophes / accented characters. Regression tests for
+    the slug that broke Mega/regional/Galar/etc. sprites."""
+
+    def test_base_species(self) -> None:
+        assert sprite_id("Pikachu") == "pikachu"
+        assert sprite_id("Garchomp") == "garchomp"
+        assert sprite_id("Mewtwo") == "mewtwo"
+
+    def test_mega_keeps_dash(self) -> None:
+        assert sprite_id("Charizard-Mega-X") == "charizard-megax"
+        assert sprite_id("Charizard-Mega-Y") == "charizard-megay"
+        assert sprite_id("Aerodactyl-Mega") == "aerodactyl-mega"
+        assert sprite_id("Blaziken-Mega") == "blaziken-mega"
+        assert sprite_id("Mewtwo-Mega-X") == "mewtwo-megax"
+
+    def test_regional_forms(self) -> None:
+        assert sprite_id("Slowking-Galar") == "slowking-galar"
+        assert sprite_id("Weezing-Galar") == "weezing-galar"
+        assert sprite_id("Mr. Mime-Galar") == "mr-mime-galar"
+        assert sprite_id("Zoroark-Hisui") == "zoroark-hisui"
+        assert sprite_id("Wooper-Paldea") == "wooper-paldea"
+        assert sprite_id("Vulpix-Alola") == "vulpix-alola"
+
+    def test_dotted_names_become_dashed(self) -> None:
+        assert sprite_id("Mr. Mime") == "mr-mime"
+        assert sprite_id("Mime Jr.") == "mime-jr"
+        assert sprite_id("Tapu Lele") == "tapu-lele"
+
+    def test_apostrophes_and_accents_stripped(self) -> None:
+        # Farfetch'd has an apostrophe in the species name.
+        assert sprite_id("Farfetch'd") == "farfetchd"
+        # Flabébé has an accented é; the slug folds it to plain e so the
+        # CDN gets a real ASCII path (``flabebe``, not ``flabb``).
+        assert sprite_id("Flabébé") == "flabebe"
+
+    def test_unique_megas(self) -> None:
+        # Mega forms of the same base have distinct slugs.
+        assert sprite_id("Charizard-Mega-X") != sprite_id("Charizard-Mega-Y")
+        # And the slash on Mewtwo-Mega-X becomes nothing.
+        assert sprite_id("Mewtwo-Mega-X") == "mewtwo-megax"
+
+    def test_species_id_and_sprite_id_diverge_for_forms(self) -> None:
+        # Regression: species_id strips dashes (used as flat lookup key),
+        # sprite_id keeps them (used as CDN slug). They must NOT collapse
+        # into the same string for form-distinguishing species.
+        from pokecore.teams import _normalize_species_id
+
+        for species in [
+            "Charizard-Mega-X",
+            "Slowking-Galar",
+            "Mr. Mime-Galar",
+            "Aerodactyl-Mega",
+        ]:
+            sid = _normalize_species_id(species)
+            spid = sprite_id(species)
+            assert sid != spid, f"{species}: expected sid={sid!r} != sprite_id={spid!r}"
+            assert "-" in spid, f"{species}: expected sprite_id to keep the form dash"

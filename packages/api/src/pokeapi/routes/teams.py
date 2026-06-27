@@ -15,7 +15,7 @@ from pokeapi.schemas import (
     TeamResponse,
 )
 from pokecore import parse_team
-from pokecore.teams import PokemonSet
+from pokecore.teams import PokemonSet, sprite_id
 
 router = APIRouter(prefix="/teams", tags=["teams"])
 
@@ -37,6 +37,7 @@ def _pokemon_to_preview(pkmn: PokemonSet) -> PokemonPreview:
         nickname=pkmn.nickname,
         species=pkmn.species,
         species_id=pkmn.species_id,
+        sprite_id=sprite_id(pkmn.species),
         item=pkmn.item,
         ability=pkmn.ability,
         types=[t.value for t in pkmn.types],

@@ -205,6 +205,38 @@ def _normalize_species_id(species: str) -> str:
     return re.sub(r"[^a-z0-9]", "", species.lower())
 
 
+def sprite_id(species: str) -> str:
+    """Return the slug the Pokémon Showdown CDN uses for sprite URLs.
+
+    Showdown's CDN serves sprites at
+    ``https://play.pokemonshowdown.com/sprites/{folder}/{sprite_id}.{ext}``,
+    where ``sprite_id`` lowercases the species name, keeps the dashes that
+    distinguish forms (``Charizard-Mega-X`` → ``charizard-megax``,
+    ``Slowking-Galar`` → ``slowking-galar``), strips any non-alphanumeric
+    noise such as dots and apostrophes (``Mr. Mime`` → ``mr-mime``,
+    ``Farfetch'd`` → ``farfetchd``), and folds accented characters to their
+    ASCII base (``Flabébé`` → ``flabebe``).
+
+    Mega X / Mega Y (and only those) are special-cased: the trailing single
+    letter is merged with the ``mega`` token so the slug matches what the
+    CDN actually serves (``charizard-mega-x`` → ``charizard-megax``). Every
+    other multi-letter form keeps the dash (``kyurem-black`` →
+    ``kyurem-black``).
+
+    This is deliberately different from :func:`_normalize_species_id`,
+    which the rest of the engine uses as a flat lookup key (no dashes).
+    """
+    import unicodedata
+
+    # Fold accented characters down to ASCII base first so that
+    # ``Flabébé`` → ``flabebe`` rather than dropping the trailing ``e``.
+    folded = unicodedata.normalize("NFKD", species).encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^a-z0-9-]", "", folded.lower().replace(" ", "-"))
+    # The CDN serves Mega X / Mega Y as charizard-megax, not
+    # charizard-mega-x. Don't merge other single-letter forms.
+    return re.sub(r"-mega-([xy])$", r"-mega\1", slug)
+
+
 def _parse_header(line: str) -> tuple[str | None, str, str | None]:
     text = line.strip()
     item: str | None = None

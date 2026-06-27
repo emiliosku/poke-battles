@@ -27,6 +27,7 @@ from pokecore.teams import (
     TypeResolver,
     format_team,
     parse_team,
+    sprite_id,
 )
 from pokecore.type_chart import (
     coverage_summary,
@@ -93,6 +94,7 @@ __all__ = [
     "rate",
     "rate_pair",
     "resists",
+    "sprite_id",
     "teams",
     "type_chart",
     "type_multiplier",

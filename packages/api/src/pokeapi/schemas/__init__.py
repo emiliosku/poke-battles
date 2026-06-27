@@ -40,6 +40,7 @@ class PokemonPreview(BaseModel):
     nickname: str | None
     species: str
     species_id: str
+    sprite_id: str
     item: str | None
     ability: str
     types: list[str] = Field(default_factory=list)
@@ -167,6 +168,20 @@ class FormatResponse(BaseModel):
     experimental: bool
 
 
+class PokedexEntry(BaseModel):
+    species_id: str
+    name: str
+    num: int
+    types: list[str] = Field(default_factory=list)
+    base_stats: dict[str, int] = Field(default_factory=dict)
+    abilities: dict[str, str] = Field(default_factory=dict)
+
+
+class PokedexResponse(BaseModel):
+    count: int
+    pokemon: list[PokedexEntry]
+
+
 class ModelResponse(BaseModel):
     name: str
     provider: str
@@ -190,6 +205,8 @@ __all__ = [
     "HealthResponse",
     "LeaderboardEntry",
     "ModelResponse",
+    "PokedexEntry",
+    "PokedexResponse",
     "PokemonPreview",
     "PracticeActionResponse",
     "PracticeActionSubmit",

@@ -27,6 +27,7 @@ export interface PokemonPreview {
   nickname: string | null;
   species: string;
   species_id: string;
+  sprite_id: string;
   item: string | null;
   ability: string;
   types: string[];
