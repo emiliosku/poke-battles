@@ -1,0 +1,21 @@
+# Don't copy host node_modules — npm ci will install fresh inside the
+# arm64 container. Without this, COPY brings x86_64 binaries into the
+# image and QEMU can SIGILL when they get loaded.
+node_modules/
+
+# Build artifacts and caches that should not pollute the image.
+dist/
+.vite/
+coverage/
+test-results/
+playwright-report/
+e2e/test-results/
+*.tsbuildinfo
+
+# Test-only config and source — the production build only needs src/.
+playwright.config.ts
+e2e/
+
+# Logs and OS junk.
+*.log
+.DS_Store
