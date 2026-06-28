@@ -305,7 +305,9 @@ class TestSpriteSlug:
     def test_regional_forms(self) -> None:
         assert sprite_id("Slowking-Galar") == "slowking-galar"
         assert sprite_id("Weezing-Galar") == "weezing-galar"
-        assert sprite_id("Mr. Mime-Galar") == "mr-mime-galar"
+        # Mr. Mime-Galar shares its base form's sprite on the CDN; the
+        # override table collapses the slug to the base form.
+        assert sprite_id("Mr. Mime-Galar") == "mrmime"
         assert sprite_id("Zoroark-Hisui") == "zoroark-hisui"
         assert sprite_id("Wooper-Paldea") == "wooper-paldea"
         assert sprite_id("Vulpix-Alola") == "vulpix-alola"
@@ -332,15 +334,50 @@ class TestSpriteSlug:
         # Regression: species_id strips dashes (used as flat lookup key),
         # sprite_id keeps them (used as CDN slug). They must NOT collapse
         # into the same string for form-distinguishing species.
+        # Mr. Mime-Galar is excluded: the CDN reuses the base form's
+        # sprite, so its slug intentionally collapses to the base form.
         from pokecore.teams import _normalize_species_id
 
         for species in [
             "Charizard-Mega-X",
             "Slowking-Galar",
-            "Mr. Mime-Galar",
             "Aerodactyl-Mega",
         ]:
             sid = _normalize_species_id(species)
             spid = sprite_id(species)
             assert sid != spid, f"{species}: expected sid={sid!r} != sprite_id={spid!r}"
             assert "-" in spid, f"{species}: expected sprite_id to keep the form dash"
+
+    def test_cdn_slug_overrides(self) -> None:
+        # Each entry was probed against the live Showdown CDN to confirm
+        # the override actually points at an image (vs the default
+        # slug which 404s). Keep this list in sync with
+        # ``pokecore.teams._CDN_SLUG_OVERRIDES``.
+        overrides = {
+            "Basculin-Blue-Striped": "basculin-bluestriped",
+            "Basculin-White-Striped": "basculin-whitestriped",
+            "Darmanitan-Galar-Zen": "darmanitan-galar",
+            "Dudunsparce-Three-Segment": "dudunsparce",
+            "Farfetch'd-Galar": "sirfetchd",
+            "Mr. Mime-Galar": "mrmime",
+            "Necrozma-Dawn-Wings": "necrozma-dawnwings",
+            "Necrozma-Dusk-Mane": "necrozma-duskmane",
+            "Ogerpon-Cornerstone-Tera": "ogerpon-cornerstone",
+            "Ogerpon-Hearthflame-Tera": "ogerpon-hearthflame",
+            "Ogerpon-Teal-Tera": "ogerpon-teal",
+            "Ogerpon-Wellspring-Tera": "ogerpon-wellspring",
+            "Oricorio-Pom-Pom": "oricorio-pau",
+            "Pichu-Spiky-eared": "pichu-spikyeared",
+            "Pikachu-Rock-Star": "pikachu-rockstar",
+            "Toxtricity-Low-Key": "toxtricity-lowkey",
+            "Toxtricity-Low-Key-Gmax": "toxtricity-lowkey",
+            "Urshifu-Rapid-Strike": "urshifu-rapidstrike",
+            "Urshifu-Rapid-Strike-Gmax": "urshifu-rapidstrike",
+            "Tauros-Paldea-Aqua": "tauros-paldea",
+            "Tauros-Paldea-Blaze": "tauros-paldea",
+            "Tauros-Paldea-Combat": "tauros-paldea",
+        }
+        for species, expected in overrides.items():
+            assert sprite_id(species) == expected, (
+                f"{species}: expected {expected!r}, got {sprite_id(species)!r}"
+            )

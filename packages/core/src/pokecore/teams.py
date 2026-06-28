@@ -205,6 +205,52 @@ def _normalize_species_id(species: str) -> str:
     return re.sub(r"[^a-z0-9]", "", species.lower())
 
 
+# Most forms follow the ``{base}-{form}`` slug convention, but a handful
+# of species' Showdown CDN slugs diverge from the standard transform:
+#
+# * Some form names are concatenated, not dash-separated, by the CDN
+#   (``Basculin-Blue-Striped`` → ``basculin-bluestriped``, not
+#   ``basculin-blue-striped``; ``Toxtricity-Low-Key`` → ``toxtricity-lowkey``).
+# * A few forms don't get their own sprite and reuse the base form's art
+#   (``Darmanitan-Galar-Zen`` reuses ``darmanitan-galar``;
+#   ``Dudunsparce-Three-Segment`` reuses ``dudunsparce``).
+# * A few forms were renamed to a different species entirely in the
+#   games: Galarian Farfetch'd is the evolution Sirfetch'd, so its
+#   slug is just ``sirfetchd``; Galarian Mr. Mime shares ``mrmime``'s
+#   art.
+# * Oricorio's Pom-Pom form uses the Hawaiian bird name
+#   ``oricorio-pau``, not ``oricorio-pompom``.
+# * Ogerpon's Tera-typed masks drop the ``-tera`` suffix on the CDN.
+# * Tauros's three Paldean breeds share a single ``tauros-paldea`` sprite.
+#
+# The keys are the *standard* slug (what the NFKD + dash transform
+# would produce); the values are the actual CDN slug.
+_CDN_SLUG_OVERRIDES: dict[str, str] = {
+    "basculin-blue-striped": "basculin-bluestriped",
+    "basculin-white-striped": "basculin-whitestriped",
+    "darmanitan-galar-zen": "darmanitan-galar",
+    "dudunsparce-three-segment": "dudunsparce",
+    "farfetchd-galar": "sirfetchd",
+    "mr-mime-galar": "mrmime",
+    "necrozma-dawn-wings": "necrozma-dawnwings",
+    "necrozma-dusk-mane": "necrozma-duskmane",
+    "ogerpon-cornerstone-tera": "ogerpon-cornerstone",
+    "ogerpon-hearthflame-tera": "ogerpon-hearthflame",
+    "ogerpon-teal-tera": "ogerpon-teal",
+    "ogerpon-wellspring-tera": "ogerpon-wellspring",
+    "oricorio-pom-pom": "oricorio-pau",
+    "pichu-spiky-eared": "pichu-spikyeared",
+    "pikachu-rock-star": "pikachu-rockstar",
+    "toxtricity-low-key": "toxtricity-lowkey",
+    "toxtricity-low-key-gmax": "toxtricity-lowkey",
+    "urshifu-rapid-strike": "urshifu-rapidstrike",
+    "urshifu-rapid-strike-gmax": "urshifu-rapidstrike",
+    "tauros-paldea-aqua": "tauros-paldea",
+    "tauros-paldea-blaze": "tauros-paldea",
+    "tauros-paldea-combat": "tauros-paldea",
+}
+
+
 def sprite_id(species: str) -> str:
     """Return the slug the Pokémon Showdown CDN uses for sprite URLs.
 
@@ -223,6 +269,11 @@ def sprite_id(species: str) -> str:
     other multi-letter form keeps the dash (``kyurem-black`` →
     ``kyurem-black``).
 
+    A small set of species diverge from the standard transform
+    (concatenated form names, base-form sprite reuse, Showdown renames).
+    Those are handled by :data:`_CDN_SLUG_OVERRIDES`, checked after the
+    standard transform.
+
     This is deliberately different from :func:`_normalize_species_id`,
     which the rest of the engine uses as a flat lookup key (no dashes).
     """
@@ -234,7 +285,10 @@ def sprite_id(species: str) -> str:
     slug = re.sub(r"[^a-z0-9-]", "", folded.lower().replace(" ", "-"))
     # The CDN serves Mega X / Mega Y as charizard-megax, not
     # charizard-mega-x. Don't merge other single-letter forms.
-    return re.sub(r"-mega-([xy])$", r"-mega\1", slug)
+    slug = re.sub(r"-mega-([xy])$", r"-mega\1", slug)
+    # Apply per-species overrides for the few forms whose CDN slug
+    # diverges from the standard transform.
+    return _CDN_SLUG_OVERRIDES.get(slug, slug)
 
 
 def _parse_header(line: str) -> tuple[str | None, str, str | None]:
