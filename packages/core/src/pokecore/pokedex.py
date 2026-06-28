@@ -41,6 +41,24 @@ class PokedexEntry:
 _FIELDS = ("name", "num", "types", "baseStats", "abilities")
 
 
+def _unescape_js_string(s: str) -> str:
+    """Decode JavaScript string escapes that the regex parser can't
+    handle. Showdown uses ``\\u2019`` for the right single quote in
+    ``Farfetch'd`` / ``Sirfetch'd`` and ``\\u0301`` for the combining
+    acute accents in ``Flabébé``. The input is the raw text between
+    the JS string literal's quotes, so the backslashes are literal and
+    need to be interpreted.
+
+    ``encode("latin-1")`` preserves every byte 1:1; the resulting
+    ``decode("unicode_escape")`` then resolves ``\\uXXXX``, ``\\n``,
+    ``\\t``, ``\\\\``, etc. identically to a JavaScript string literal.
+    Falls back to the raw string on malformed escapes."""
+    try:
+        return s.encode("latin-1").decode("unicode_escape")
+    except UnicodeDecodeError:
+        return s
+
+
 def _parse_pokedex_js(content: str) -> dict[str, dict[str, Any]]:
     """Pull the top-level pokemon objects out of the pokedex.js bundle.
 
@@ -74,10 +92,12 @@ def _parse_pokedex_js(content: str) -> dict[str, dict[str, Any]]:
             i += 1
         block = body[start + 1 : i - 1]
         entry: dict[str, Any] = {}
-        # ``name: "Bulbasaur"`` (string literal in JS).
+        # ``name: "Bulbasaur"`` (string literal in JS). The captured
+        # group may contain JS escape sequences (``\\u2019``, ``\\n``,
+        # etc.) which we decode before exposing the value to Python.
         m = re.search(r'name:\s*"([^"]*)"', block)
         if m:
-            entry["name"] = m.group(1)
+            entry["name"] = _unescape_js_string(m.group(1))
         # ``num: 6`` (integer literal).
         m = re.search(r"\bnum:\s*(-?\d+)", block)
         if m:
