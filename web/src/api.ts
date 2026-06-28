@@ -155,7 +155,24 @@ export interface PracticeMoveOption {
 
 export type PracticeOption =
   | { kind: "move"; id: string; move: PracticeMoveOption }
-  | { kind: "switch"; id: string; pokemon: PracticeSwitchPokemon };
+  | { kind: "switch"; id: string; pokemon: PracticeSwitchPokemon }
+  | { kind: "double"; id: string; label: string; first: { kind: "move" | "switch"; move?: PracticeMoveOption; pokemon?: PracticeSwitchPokemon }; second: { kind: "move" | "switch"; move?: PracticeMoveOption; pokemon?: PracticeSwitchPokemon } };
+
+export interface PracticeTeamPreviewOption {
+  id: string;
+  label: string;
+  message: string;
+  pokemon: PracticeSwitchPokemon & { item: string | null; ability: string | null };
+}
+
+export interface PracticeTeamPreviewRequest {
+  kind: "practice_team_preview";
+  request_id: string;
+  battle_id: string;
+  expires_at: string;
+  pick: number;
+  options: PracticeTeamPreviewOption[];
+}
 
 // A single, well-typed choice. `phase` tells the UI what to render:
 //   - "team_preview": pick N leads from your full team (doubles only)
@@ -167,16 +184,8 @@ export interface PracticeActionRequest {
   request_id: string;
   battle_id: string;
   expires_at: string;
-  phase: "team_preview" | "switch" | "move" | "free";
-  pick: number;
-  options: PracticeOption[];
-}
-
-export interface PracticeActionRequest {
-  kind: "practice_action_required";
-  request_id: string;
-  battle_id: string;
-  expires_at: string;
+  phase?: "team_preview" | "switch" | "move" | "free";
+  pick?: number;
   options: PracticeOption[];
 }
 
@@ -284,6 +293,13 @@ export const api = {
     action: (battleId: string) => r<{ action: PracticeActionRequest | null }>(`/practice/battles/${battleId}/action`),
     submitAction: (battleId: string, data: { request_id: string; option_id: string }) =>
       r<{ accepted: boolean }>(`/practice/battles/${battleId}/actions`, { method: "POST", body: JSON.stringify(data) }),
+    teamPreview: (battleId: string) =>
+      r<{ preview: PracticeTeamPreviewRequest | null }>(`/practice/battles/${battleId}/team-preview`),
+    submitTeamPreview: (battleId: string, data: { request_id: string; option_ids: string[] }) =>
+      r<{ accepted: boolean }>(`/practice/battles/${battleId}/team-preview`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
   },
   simulations: {
     list: (limit = 25) => r<SimulationResponse[]>(`/simulations${query({ limit })}`),

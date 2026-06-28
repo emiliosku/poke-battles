@@ -11,6 +11,7 @@ import {
   type PracticeMoveOption,
   type PracticeOption,
   type PracticeSwitchPokemon,
+  type PracticeTeamPreviewRequest,
   type Team,
 } from "../api";
 import { useAuth } from "../auth";
@@ -109,6 +110,8 @@ export default function Practice() {
   const [battle, setBattle] = useState<BattleResponse | null>(null);
   const [events, setEvents] = useState<BattleEvent[]>([]);
   const [action, setAction] = useState<PracticeActionRequest | null>(null);
+  const [teamPreview, setTeamPreview] = useState<PracticeTeamPreviewRequest | null>(null);
+  const [teamPreviewPicks, setTeamPreviewPicks] = useState<Set<string>>(new Set());
   const [remaining, setRemaining] = useState<number | null>(null);
   const [wsState, setWsState] = useState("idle");
   const [error, setError] = useState("");
@@ -149,6 +152,12 @@ export default function Practice() {
           if (!cancelled) setAction(result.action);
         })
         .catch(() => undefined);
+      api.practice
+        .teamPreview(id)
+        .then((result) => {
+          if (!cancelled) setTeamPreview(result.preview);
+        })
+        .catch(() => undefined);
     };
     load();
     const interval = window.setInterval(() => {
@@ -168,7 +177,7 @@ export default function Practice() {
     structured.onerror = () => setWsState("error");
     structured.onmessage = (msg) => {
       try {
-        const payload = JSON.parse(msg.data) as BattleEvent | PracticeActionRequest | { kind: string };
+        const payload = JSON.parse(msg.data) as BattleEvent | PracticeActionRequest | PracticeTeamPreviewRequest | { kind: string };
         if (payload.kind === "practice_action_required") {
           setAction(payload as PracticeActionRequest);
           return;
@@ -177,8 +186,20 @@ export default function Practice() {
           setAction(null);
           return;
         }
+        if (payload.kind === "practice_team_preview") {
+          setTeamPreview(payload as PracticeTeamPreviewRequest);
+          setTeamPreviewPicks(new Set());
+          return;
+        }
+        if (payload.kind === "practice_team_preview_submitted") {
+          setTeamPreview(null);
+          setTeamPreviewPicks(new Set());
+          return;
+        }
         if (payload.kind === "practice_user_timeout") {
           setAction(null);
+          setTeamPreview(null);
+          setTeamPreviewPicks(new Set());
         }
         setEvents((prev) => [...prev, payload as BattleEvent]);
       } catch {
@@ -245,6 +266,42 @@ export default function Practice() {
     try {
       await api.practice.submitAction(id, { request_id: action.request_id, option_id: optionId });
       setAction(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSubmitting("");
+    }
+  };
+
+  const toggleTeamPreviewPick = (optionId: string) => {
+    if (!teamPreview) return;
+    setTeamPreviewPicks((current) => {
+      const next = new Set(current);
+      if (next.has(optionId)) {
+        next.delete(optionId);
+        return next;
+      }
+      if (next.size >= teamPreview.pick) {
+        return next;
+      }
+      next.add(optionId);
+      return next;
+    });
+  };
+
+  const submitTeamPreview = async () => {
+    if (!id || !teamPreview) return;
+    const ordered = Array.from(teamPreviewPicks);
+    if (ordered.length !== teamPreview.pick) return;
+    setSubmitting("preview");
+    setError("");
+    try {
+      await api.practice.submitTeamPreview(id, {
+        request_id: teamPreview.request_id,
+        option_ids: ordered,
+      });
+      setTeamPreview(null);
+      setTeamPreviewPicks(new Set());
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -328,8 +385,109 @@ export default function Practice() {
     );
   }
 
+  function renderDoubleOrder(opt: Extract<PracticeOption, { kind: "double" }>, index: number, hotkey: number) {
+    const isFirstMove = opt.first.kind === "move";
+    const isFirstSwitch = opt.first.kind === "switch";
+    const isSecondMove = opt.second.kind === "move";
+    const isSecondSwitch = opt.second.kind === "switch";
+    const move = isFirstMove ? (opt.first.move as PracticeMoveOption) : isSecondMove ? (opt.second.move as PracticeMoveOption) : null;
+    const switchMon = isFirstSwitch ? (opt.first.pokemon as PracticeSwitchPokemon) : isSecondSwitch ? (opt.second.pokemon as PracticeSwitchPokemon) : null;
+    const color = typeColor(move?.type || switchMon?.types?.[0]);
+    return (
+      <button
+        type="button"
+        className="move-button"
+        disabled={Boolean(submitting)}
+        onClick={() => void submitAction(opt.id)}
+        key={opt.id}
+        title={opt.label}
+        style={{
+          borderColor: color,
+          background: `linear-gradient(180deg, ${color}28, ${color}10)`,
+        }}
+      >
+        <span className="move-key" aria-hidden="true">{hotkey}</span>
+        <span className="move-label">{submitting === opt.id ? "Submitting..." : opt.label}</span>
+        <span className="move-meta">
+          {move && move.type && <span className="move-type" style={{ background: color }}>{move.type}</span>}
+          {switchMon && switchMon.types[0] && <span className="move-type" style={{ background: typeColor(switchMon.types[0]) }}>{switchMon.types[0]}</span>}
+        </span>
+      </button>
+    );
+  }
+
   // ----- Renders one of three phases for the action card ------------------
+  function renderTeamPreview() {
+    if (!teamPreview) return null;
+    const pick = teamPreview.pick;
+    const selected = teamPreviewPicks.size;
+    const ready = selected === pick;
+    return (
+      <>
+        <div className="action-timer" role="timer" aria-live="polite">
+          <strong>{remaining ?? 0}s</strong> left to pick {pick} lead{pick === 1 ? "" : "s"}
+        </div>
+        <div className="action-section">
+          <h3 className="action-section-title">
+            Choose {pick} lead{pick === 1 ? "" : "s"}
+            <span className="muted"> {selected}/{pick} selected</span>
+          </h3>
+          <p className="muted small">
+            In Showdown, doubles lead preview lets you decide which Pokémon open the battle. The rest stay on the bench until you switch them in.
+          </p>
+          <div className="switches-grid">
+            {teamPreview.options.map((opt, i) => {
+              const mon = opt.pokemon;
+              const primaryType = mon.types[0];
+              const color = typeColor(primaryType);
+              const isSelected = teamPreviewPicks.has(opt.id);
+              const order = isSelected ? Array.from(teamPreviewPicks).indexOf(opt.id) + 1 : 0;
+              const disabled = submitting === "preview";
+              return (
+                <button
+                  type="button"
+                  className={`switch-button${isSelected ? " selected" : ""}`}
+                  disabled={disabled}
+                  key={opt.id}
+                  onClick={() => toggleTeamPreviewPick(opt.id)}
+                  title={`Pick ${mon.name} as lead ${order || ""}`.trim()}
+                  style={{ borderColor: color }}
+                >
+                  <span className="switch-key" aria-hidden="true">{i + 1}</span>
+                  <MonSprite speciesId={mon.species_id} name={mon.name} size={42} />
+                  <span className="switch-body">
+                    <span className="switch-label">
+                      {mon.name}
+                      {isSelected ? ` · lead #${order}` : ""}
+                    </span>
+                    <span className="switch-meta">
+                      <span className="hp-track small"><span className="hp-fill" style={{ width: `${mon.hp_percent}%`, background: "var(--green)" }} /></span>
+                      <span className="switch-hp">{mon.hp_percent}%</span>
+                      {mon.types.length > 0 && <span className="switch-type" style={{ background: color }}>{mon.types[0]}</span>}
+                      {mon.types[1] && <span className="switch-type" style={{ background: typeColor(mon.types[1]) }}>{mon.types[1]}</span>}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            className="button"
+            disabled={!ready || submitting === "preview"}
+            onClick={() => void submitTeamPreview()}
+          >
+            {submitting === "preview" ? "Submitting..." : ready ? "Send leads" : `Pick ${pick - selected} more`}
+          </button>
+        </div>
+      </>
+    );
+  }
+
   function renderActionBody() {
+    if (teamPreview) {
+      return renderTeamPreview();
+    }
     if (!action) {
       if (battle && terminalStatuses.has(battle.status)) {
         return <div className="action-waiting muted">Battle {battle.status}.</div>;
@@ -384,6 +542,31 @@ export default function Practice() {
     }
 
     if (action.phase === "move") {
+      const doubleOpts = action.options.filter(
+        (o): o is Extract<PracticeOption, { kind: "double" }> => o.kind === "double",
+      );
+      if (doubleOpts.length > 0) {
+        return (
+          <>
+            <div className="action-timer" role="timer" aria-live="polite">
+              <strong>{remaining ?? 0}s</strong> left to choose
+              <span className="muted"> · miss the timer and the practice battle is forfeit</span>
+            </div>
+            <div className="action-section">
+              <h3 className="action-section-title">
+                Doubles order
+                <span className="muted"> press 1–{doubleOpts.length}</span>
+              </h3>
+              <p className="muted small">
+                Each order runs both Pokémon at once. Pick a slot-1 and slot-2 action.
+              </p>
+              <div className="moves-grid">
+                {doubleOpts.map((opt, i) => renderDoubleOrder(opt, i, i + 1))}
+              </div>
+            </div>
+          </>
+        );
+      }
       return (
         <>
           <div className="action-timer" role="timer" aria-live="polite">
@@ -422,7 +605,8 @@ export default function Practice() {
 
   if (id) {
     const phaseLabel =
-      action?.phase === "team_preview" ? "Choose your leads"
+      teamPreview ? "Choose your leads"
+      : action?.phase === "team_preview" ? "Choose your leads"
       : action?.phase === "switch" ? "Forced switch"
       : action?.phase === "move" ? "Choose your action"
       : battle && !terminalStatuses.has(battle.status) ? "Waiting"
