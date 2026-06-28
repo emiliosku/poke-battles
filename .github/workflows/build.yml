@@ -64,6 +64,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      digest: ${{ steps.export-digest.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
       - name: Set up QEMU
@@ -77,6 +79,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push API
+        id: push
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -84,12 +87,20 @@ jobs:
           platforms: linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ env.REGISTRY }}/${{ github.repository_owner }}/poke-battles-api:latest
+      - name: Export digest
+        id: export-digest
+        if: steps.push.outputs.digest != ''
+        run: echo "digest=${{ steps.push.outputs.digest }}" >> "$GITHUB_OUTPUT"
 
   web:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+    outputs:
+      digest: ${{ steps.export-digest.outputs.digest }}
+      bundle_js: ${{ steps.capture-bundle.outputs.js }}
+      bundle_css: ${{ steps.capture-bundle.outputs.css }}
     steps:
       - uses: actions/checkout@v4
       - name: Set up Node
@@ -115,6 +126,19 @@ jobs:
           npm ci
           npm run test:unit
           npm run build
+      - name: Capture bundle hash
+        id: capture-bundle
+        working-directory: web
+        run: |
+          set -euo pipefail
+          JS=$(ls dist/assets/index-*.js | head -1 | xargs -n1 basename)
+          CSS=$(ls dist/assets/index-*.css | head -1 | xargs -n1 basename)
+          if [ -z "$JS" ] || [ -z "$CSS" ]; then
+            echo "::error::no bundle assets found in web/dist/assets/"
+            exit 1
+          fi
+          echo "js=$JS" >> "$GITHUB_OUTPUT"
+          echo "css=$CSS" >> "$GITHUB_OUTPUT"
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
@@ -126,6 +150,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push web
+        id: push
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -133,6 +158,10 @@ jobs:
           platforms: linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ env.REGISTRY }}/${{ github.repository_owner }}/poke-battles-web:latest
+      - name: Export digest
+        id: export-digest
+        if: steps.push.outputs.digest != ''
+        run: echo "digest=${{ steps.push.outputs.digest }}" >> "$GITHUB_OUTPUT"
 
   showdown:
     needs: [validate]
@@ -140,6 +169,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      digest: ${{ steps.export-digest.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
       - name: Set up QEMU
@@ -153,6 +184,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push Showdown
+        id: push
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -167,12 +199,18 @@ jobs:
           platforms: linux/amd64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ env.REGISTRY }}/${{ github.repository_owner }}/poke-battles-showdown:latest
+      - name: Export digest
+        id: export-digest
+        if: steps.push.outputs.digest != ''
+        run: echo "digest=${{ steps.push.outputs.digest }}" >> "$GITHUB_OUTPUT"
 
   showdown-client:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+    outputs:
+      digest: ${{ steps.export-digest.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
       - name: Set up QEMU
@@ -186,6 +224,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push Showdown client
+        id: push
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -193,24 +232,86 @@ jobs:
           platforms: linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ env.REGISTRY }}/${{ github.repository_owner }}/poke-battles-showdown-client:latest
+      - name: Export digest
+        id: export-digest
+        if: steps.push.outputs.digest != ''
+        run: echo "digest=${{ steps.push.outputs.digest }}" >> "$GITHUB_OUTPUT"
 
   deploy:
     needs: [api, web, showdown, showdown-client]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     steps:
-      - name: SSH into server and restart services
+      # Pull each image by its content-addressable digest (which bypasses
+      # GHCR's :latest edge cache) and re-tag locally so docker compose
+      # picks up the new image. --force-recreate restarts the containers
+      # even when the image digest hasn't changed since the last deploy.
+      - name: SSH into server, pull by digest, restart services
         uses: appleboy/ssh-action@v1
+        env:
+          API_DIGEST: ${{ needs.api.outputs.digest }}
+          WEB_DIGEST: ${{ needs.web.outputs.digest }}
+          SHOWDOWN_DIGEST: ${{ needs.showdown.outputs.digest }}
+          SHOWDOWN_CLIENT_DIGEST: ${{ needs.showdown-client.outputs.digest }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           script: |
+            set -euo pipefail
             cd /home/ubuntu/oci-infra
-            docker compose pull poke-battles-api poke-battles-web poke-battles-showdown poke-battles-showdown-client
-            # --force-recreate so a no-op API build (empty commit, cache hit,
-            # or an unchanged sub-service) still restarts the containers and
-            # a stale image can't linger forever. The few seconds of
-            # downtime per push is acceptable for this dev stack.
-            docker compose up -d --force-recreate poke-battles-api poke-battles-web poke-battles-showdown poke-battles-showdown-client
-            docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile
+            OWNER="${{ github.repository_owner }}"
+            declare -A DIGESTS=(
+              [poke-battles-api]="${API_DIGEST}"
+              [poke-battles-web]="${WEB_DIGEST}"
+              [poke-battles-showdown]="${SHOWDOWN_DIGEST}"
+              [poke-battles-showdown-client]="${SHOWDOWN_CLIENT_DIGEST}"
+            )
+            for svc in "${!DIGESTS[@]}"; do
+              digest="${DIGESTS[$svc]}"
+              if [ -z "$digest" ]; then
+                echo "::error::missing digest for ${svc}; build job did not export one"
+                exit 1
+              fi
+              echo "Pulling ${svc}@${digest}"
+              docker pull "ghcr.io/${OWNER}/${svc}@${digest}"
+              docker tag  "ghcr.io/${OWNER}/${svc}@${digest}" "ghcr.io/${OWNER}/${svc}:latest"
+            done
+            docker compose up -d --force-recreate \
+              poke-battles-api poke-battles-web \
+              poke-battles-showdown poke-battles-showdown-client
+            docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile 2>/dev/null || true
+
+      # Post-deploy guard: fetch the live /poke-battles/ HTML and confirm
+      # it references the bundle we just shipped. Catches any future
+      # regression (cached CDN, wrong image tag, GHCR edge cache, etc.)
+      # where the deploy reports success but the live site is stale.
+      - name: Verify deployed bundle is live
+        env:
+          EXPECTED_JS: ${{ needs.web.outputs.bundle_js }}
+          EXPECTED_CSS: ${{ needs.web.outputs.bundle_css }}
+        run: |
+          set -euo pipefail
+          if [ -z "$EXPECTED_JS" ] || [ -z "$EXPECTED_CSS" ]; then
+            echo "::error::no expected bundle hash from web job (got js='$EXPECTED_JS' css='$EXPECTED_CSS')"
+            exit 1
+          fi
+          URL="https://${{ secrets.SSH_HOST }}/poke-battles/"
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            HTML=$(curl -sk --max-time 10 "$URL" || true)
+            if [ -z "$HTML" ]; then
+              echo "  try ${i}: empty response, retrying..."
+            elif echo "$HTML" | grep -q "$EXPECTED_JS" && echo "$HTML" | grep -q "$EXPECTED_CSS"; then
+              echo "OK: live site is serving $EXPECTED_JS"
+              exit 0
+            else
+              GOT_JS=$(echo "$HTML" | grep -oE 'index-[A-Za-z0-9_-]+\.js' | head -1 || true)
+              GOT_CSS=$(echo "$HTML" | grep -oE 'index-[A-Za-z0-9_-]+\.css' | head -1 || true)
+              echo "  try ${i}: live=$GOT_JS live_css=$GOT_CSS (want $EXPECTED_JS)"
+            fi
+            sleep 6
+          done
+          echo "::error::live site still serving old bundle after 60s"
+          echo "  expected js: $EXPECTED_JS"
+          echo "  expected css: $EXPECTED_CSS"
+          exit 1
