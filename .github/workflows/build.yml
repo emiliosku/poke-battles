@@ -250,6 +250,12 @@ jobs:
       # runner, NOT the remote shell, so the digests are inlined into the
       # script via ${{ }} interpolation (the action substitutes them
       # before the script is sent over SSH).
+      # Note: --platform must be passed explicitly so the daemon picks
+      # the right entry from a multi-arch manifest list. poke-battles-
+      # showdown is amd64-only (SIGILLs under QEMU arm64 build) and the
+      # OCI host is arm64, so without --platform the pull fails with
+      # "no matching manifest for linux/arm64/v8" even when the image
+      # is already cached locally.
       - name: SSH into server, pull by digest, restart services
         uses: appleboy/ssh-action@v1
         with:
@@ -266,14 +272,21 @@ jobs:
               [poke-battles-showdown]="${{ needs.showdown.outputs.digest }}"
               [poke-battles-showdown-client]="${{ needs.showdown-client.outputs.digest }}"
             )
+            declare -A PLATFORMS=(
+              [poke-battles-api]="linux/arm64"
+              [poke-battles-web]="linux/arm64"
+              [poke-battles-showdown]="linux/amd64"
+              [poke-battles-showdown-client]="linux/arm64"
+            )
             for svc in "${!DIGESTS[@]}"; do
               digest="${DIGESTS[$svc]}"
+              platform="${PLATFORMS[$svc]}"
               if [ -z "$digest" ]; then
                 echo "::error::missing digest for ${svc}; build job did not export one"
                 exit 1
               fi
-              echo "Pulling ${svc}@${digest}"
-              docker pull "ghcr.io/${OWNER}/${svc}@${digest}"
+              echo "Pulling ${svc}@${digest} (${platform})"
+              docker pull --platform "${platform}" "ghcr.io/${OWNER}/${svc}@${digest}"
               docker tag  "ghcr.io/${OWNER}/${svc}@${digest}" "ghcr.io/${OWNER}/${svc}:latest"
             done
             docker compose up -d --force-recreate \
