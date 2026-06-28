@@ -63,4 +63,27 @@ describe("spriteUrls", () => {
     const urls = spriteUrls("pikachu", "pikachu");
     expect(new Set(urls).size).toBe(urls.length);
   });
+
+  it("prefers the home sprite first when variant=\"home\"", () => {
+    const urls = spriteUrls("hatterene", { variant: "home" });
+    expect(urls[0]).toBe(
+      "https://play.pokemonshowdown.com/sprites/home/hatterene.png",
+    );
+    // And the rest of the default chain is appended as a fallback so
+    // species without a home image (e.g. CAP) still render.
+    expect(urls).toContain(
+      "https://play.pokemonshowdown.com/sprites/gen5ani/hatterene.gif",
+    );
+  });
+
+  it("home variant keeps the form-aware slug first for megas / regionals", () => {
+    const urls = spriteUrls("slowking-galar", "slowkinggalar", { variant: "home" });
+    expect(urls[0]).toBe(
+      "https://play.pokemonshowdown.com/sprites/home/slowking-galar.png",
+    );
+    const derivedHome = urls.findIndex((u) => u === "https://play.pokemonshowdown.com/sprites/home/slowking-galar.png");
+    const canonicalHome = urls.findIndex((u) => u === "https://play.pokemonshowdown.com/sprites/home/slowkinggalar.png");
+    expect(derivedHome).toBe(0);
+    expect(canonicalHome).toBeGreaterThan(derivedHome);
+  });
 });
