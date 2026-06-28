@@ -57,8 +57,8 @@ async def sprite_status(
                 types=list(r.types),
                 canonical_slug=r.canonical_slug,
                 derived_slug=r.derived_slug,
-                canonical_hit=r.canonical_hit,
-                derived_hit=r.derived_hit,
+                canonical_hits=list(r.canonical_hits),
+                derived_hits=list(r.derived_hits),
                 is_cap=r.is_cap,
             )
             for r in results

@@ -231,12 +231,12 @@ class TestMeta:
         body = r.json()
         assert "checked_at" in body and "results" in body
         by_sid = {p["species_id"]: p for p in body["results"]}
-        assert by_sid["hatterene"]["canonical_hit"] is not None
-        assert by_sid["hatterene"]["canonical_hit"].startswith("gen5ani")
+        assert by_sid["hatterene"]["canonical_hits"]
+        assert by_sid["hatterene"]["canonical_hits"][0].startswith("gen5ani")
         galar = by_sid["slowkinggalar"]
-        assert galar["canonical_hit"] is None, "Showdown CDN 404s slowkinggalar"
-        assert galar["derived_hit"] is not None
-        assert galar["derived_hit"].endswith("slowking-galar.gif")
+        assert galar["canonical_hits"] == [], "Showdown CDN 404s slowkinggalar"
+        assert galar["derived_hits"]
+        assert any(h.endswith("slowking-galar.gif") for h in galar["derived_hits"])
 
     def test_sprite_status_filters(self, client: TestClient) -> None:
         # Substring + type filters narrow the result set without

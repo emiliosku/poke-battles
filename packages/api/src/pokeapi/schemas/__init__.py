@@ -188,8 +188,8 @@ class SpriteResultEntry(BaseModel):
     types: list[str] = Field(default_factory=list)
     canonical_slug: str
     derived_slug: str
-    canonical_hit: str | None
-    derived_hit: str | None
+    canonical_hits: list[str] = Field(default_factory=list)
+    derived_hits: list[str] = Field(default_factory=list)
     is_cap: bool = False
 
 

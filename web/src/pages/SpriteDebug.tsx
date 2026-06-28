@@ -1,6 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { API_BASE, api } from "../api";
+import { API_BASE } from "../api";
 import { cdnUrlForSlug } from "../spriteDebugUtil";
+
+// Mirror of packages/core/src/pokecore/sprite_status.py FOLDER_EXT.
+// Order matters: the leftmost slot is the "preferred" sprite the
+// production PokemonSprite component would try first.
+const FOLDERS: Array<[string, string]> = [
+  ["gen5ani", "gif"],
+  ["ani", "gif"],
+  ["dex", "png"],
+  ["gen5", "png"],
+  ["home", "png"],
+  ["bw", "png"],
+  ["xyani", "gif"],
+];
 
 export interface SpriteResult {
   species_id: string;
@@ -8,8 +21,8 @@ export interface SpriteResult {
   types: string[];
   canonical_slug: string;
   derived_slug: string;
-  canonical_hit: string | null;
-  derived_hit: string | null;
+  canonical_hits: string[];
+  derived_hits: string[];
   is_cap: boolean;
 }
 
@@ -20,52 +33,102 @@ export interface SpriteStatus {
   results: SpriteResult[];
 }
 
-type LoadState = "loading" | "ok" | "error" | "missing";
+type CellState = "ok" | "missing";
+
+// A probe hit is the literal string ``"<folder> <slug>.<ext>"`` from
+// the backend. Each slot pairs a folder with whatever hit (if any)
+// the probe recorded for it. The probe returns hits in FOLDER_EXT
+// order, so ``hits[i]`` belongs to ``FOLDERS[i]``.
+interface SlotDescriptor {
+  folder: string;
+  ext: string;
+  hit: string | null;
+}
+
+function slotsFor(slug: string, hits: string[]): SlotDescriptor[] {
+  void slug;
+  return FOLDERS.map(([folder, ext], i) => ({
+    folder,
+    ext,
+    hit: hits[i] ?? null,
+  }));
+}
+
+function cellStateFor(result: SpriteResult): CellState {
+  if (result.canonical_hits.length > 0 || result.derived_hits.length > 0) return "ok";
+  return "missing";
+}
 
 function SpriteCell({
   result,
   variant,
-  loadState,
-  onLoad,
-  onError,
 }: {
   result: SpriteResult;
   variant: "canonical" | "derived";
-  loadState: LoadState;
-  onLoad: () => void;
-  onError: () => void;
 }) {
-  const slug = variant === "canonical" ? result.canonical_hit : result.derived_hit;
-  const url = cdnUrlForSlug(slug);
-  const label = variant === "canonical" ? "canonical" : "derived";
-  return (
-    <div className={`sprite-cell sprite-cell--${loadState}`}>
-      <div className="sprite-cell-label">
-        <code>{label}</code>
-        <span>{result[`${variant}_slug`]}</span>
+  const slug = variant === "canonical" ? result.canonical_slug : result.derived_slug;
+  const hits = variant === "canonical" ? result.canonical_hits : result.derived_hits;
+
+  // Vanilla species have derived_slug === canonical_slug. The
+  // backend leaves derived_hits empty in that case; we collapse the
+  // derived cell to avoid rendering the same 7-slot strip twice.
+  if (variant === "derived" && result.derived_slug === result.canonical_slug) {
+    return (
+      <div className="sprite-cell sprite-cell--collapsed">
+        <div className="sprite-cell-label">
+          <code>derived</code>
+          <span className="muted">(same as canonical)</span>
+        </div>
       </div>
-      <div className="sprite-cell-art">
-        {url && (
+    );
+  }
+
+  const slots = slotsFor(slug, hits);
+  const hitCount = slots.filter((s) => s.hit !== null).length;
+  const state: CellState = hitCount > 0 ? "ok" : "missing";
+
+  return (
+    <div className={`sprite-cell sprite-cell--${state}`}>
+      <div className="sprite-cell-label">
+        <div className="sprite-cell-label-row">
+          <code>{variant}</code>
+          <span className="sprite-cell-count" data-testid="sprite-cell-count">
+            {hitCount}/{slots.length}
+          </span>
+        </div>
+        <span>{slug}</span>
+      </div>
+      <div className="sprite-cell-strip" data-testid="sprite-cell-strip">
+        {slots.map((slot) => (
+          <Slot key={slot.folder} slot={slot} speciesName={result.name} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Slot({ slot, speciesName }: { slot: SlotDescriptor; speciesName: string }) {
+  const url = slot.hit ? cdnUrlForSlug(slot.hit) : null;
+  return (
+    <div
+      className={`sprite-slot ${slot.hit ? "sprite-slot--hit" : "sprite-slot--miss"}`}
+      title={slot.hit ? `${slot.folder}.${slot.ext}` : `${slot.folder}.${slot.ext} (404)`}
+      data-folder={slot.folder}
+      data-state={slot.hit ? "hit" : "miss"}
+    >
+      <div className="sprite-slot-art">
+        {url ? (
           <img
             src={url}
-            alt={`${result.name} (${label})`}
-            onLoad={onLoad}
-            onError={onError}
+            alt={`${speciesName} ${slot.folder}`}
             loading="lazy"
             decoding="async"
-            style={{ visibility: loadState === "ok" ? "visible" : "hidden" }}
           />
-        )}
-        {loadState === "loading" && url && (
-          <div className="sprite-cell-loading" aria-label="loading">…</div>
-        )}
-        {loadState === "error" && (
-          <div className="sprite-cell-error" aria-label="error">!</div>
-        )}
-        {loadState === "missing" && (
-          <div className="sprite-cell-missing" aria-label="404">404</div>
+        ) : (
+          <span className="sprite-slot-miss-glyph" aria-label="404">·</span>
         )}
       </div>
+      <span className="sprite-slot-folder">{slot.folder}</span>
     </div>
   );
 }
@@ -75,42 +138,21 @@ function PokemonCard({
   onStatusChange,
 }: {
   result: SpriteResult;
-  onStatusChange: (speciesId: string, status: "ok" | "missing" | "error") => void;
+  onStatusChange: (speciesId: string, status: CellState) => void;
 }) {
-  // Two independent image states: canonical slug, derived slug.
-  // We report the worst of the two up to the parent so the "Only
-  // failed" filter can use it.
-  const [canonicalState, setCanonicalState] = useState<LoadState>(
-    result.canonical_hit ? "loading" : "missing",
-  );
-  const [derivedState, setDerivedState] = useState<LoadState>(
-    result.derived_hit ? "loading" : "missing",
-  );
-
+  const state = cellStateFor(result);
   useEffect(() => {
-    setCanonicalState(result.canonical_hit ? "loading" : "missing");
-    setDerivedState(result.derived_hit ? "loading" : "missing");
-  }, [result.canonical_hit, result.derived_hit]);
-
-  // Once both images have settled, report the combined status to the
-  // parent so the global "OK / missing" counters stay in sync.
-  useEffect(() => {
-    if (canonicalState === "loading" || derivedState === "loading") return;
-    if (canonicalState === "ok" || derivedState === "ok") {
-      onStatusChange(result.species_id, "ok");
-    } else if (canonicalState === "error" || derivedState === "error") {
-      onStatusChange(result.species_id, "error");
-    } else {
-      onStatusChange(result.species_id, "missing");
-    }
-  }, [canonicalState, derivedState, result.species_id, onStatusChange]);
+    onStatusChange(result.species_id, state);
+  }, [result.species_id, state, onStatusChange]);
 
   return (
-    <article className="sprite-card">
+    <article className="sprite-card" data-species-id={result.species_id}>
       <header className="sprite-card-head">
         <strong>{result.name}</strong>
         <code>{result.species_id}</code>
-        {result.is_cap && <span className="badge cap" title="Create-A-Pokémon, not in the official games">CAP</span>}
+        {result.is_cap && (
+          <span className="badge cap" title="Create-A-Pokémon, not in the official games">CAP</span>
+        )}
       </header>
       <div className="sprite-card-types">
         {result.types.map((t) => (
@@ -118,20 +160,8 @@ function PokemonCard({
         ))}
       </div>
       <div className="sprite-card-grid">
-        <SpriteCell
-          result={result}
-          variant="canonical"
-          loadState={canonicalState}
-          onLoad={() => setCanonicalState("ok")}
-          onError={() => setCanonicalState("error")}
-        />
-        <SpriteCell
-          result={result}
-          variant="derived"
-          loadState={derivedState}
-          onLoad={() => setDerivedState("ok")}
-          onError={() => setDerivedState("error")}
-        />
+        <SpriteCell result={result} variant="canonical" />
+        <SpriteCell result={result} variant="derived" />
       </div>
     </article>
   );
@@ -141,7 +171,7 @@ function VirtualizedGrid({
   items,
   renderItem,
   rowHeight,
-  overscan = 6,
+  overscan = 4,
 }: {
   items: SpriteResult[];
   renderItem: (item: SpriteResult, index: number) => React.ReactNode;
@@ -199,9 +229,7 @@ export default function SpriteDebug() {
   const [onlyFailed, setOnlyFailed] = useState(false);
   const [hideCap, setHideCap] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [perSpeciesStatus, setPerSpeciesStatus] = useState<
-    Record<string, "ok" | "missing" | "error">
-  >({});
+  const [perSpeciesStatus, setPerSpeciesStatus] = useState<Record<string, CellState>>({});
 
   const load = async (refresh = false) => {
     setLoading(true);
@@ -255,21 +283,25 @@ export default function SpriteDebug() {
   }, [status, q, typeFilter, onlyFailed, hideCap, perSpeciesStatus]);
 
   const stats = useMemo(() => {
-    if (!status) return { total: 0, ok: 0, missing: 0, error: 0 };
-    let ok = 0, missing = 0, error = 0;
+    if (!status) return { total: 0, ok: 0, missing: 0, totalSlots: 0 };
+    let ok = 0;
+    let missing = 0;
+    let totalSlots = 0;
     for (const r of status.results) {
       const s = perSpeciesStatus[r.species_id];
       if (s === "ok") ok += 1;
-      else if (s === "error") error += 1;
       else missing += 1;
+      // Each species contributes up to 2 cells; canonical always
+      // renders, derived only when it differs from canonical.
+      totalSlots += r.canonical_hits.length + r.derived_hits.length;
     }
-    return { total: status.results.length, ok, missing, error };
+    return { total: status.results.length, ok, missing, totalSlots };
   }, [status, perSpeciesStatus]);
 
-  const handleStatus = (speciesId: string, status: "ok" | "missing" | "error") => {
+  const handleStatus = (speciesId: string, st: CellState) => {
     setPerSpeciesStatus((prev) => {
-      if (prev[speciesId] === status) return prev;
-      return { ...prev, [speciesId]: status };
+      if (prev[speciesId] === st) return prev;
+      return { ...prev, [speciesId]: st };
     });
   };
 
@@ -348,7 +380,9 @@ export default function SpriteDebug() {
             <span><strong>{stats.total}</strong> total</span>
             <span style={{ color: "#86efac" }}><strong>{stats.ok}</strong> ok</span>
             <span style={{ color: "#fca5a5" }}><strong>{stats.missing}</strong> missing</span>
-            <span style={{ color: "#fcd34d" }}><strong>{stats.error}</strong> error</span>
+            <span className="muted">
+              <strong>{stats.totalSlots}</strong> sprite hits across all folders
+            </span>
           </div>
           {status && (
             <span className="muted">
@@ -368,7 +402,7 @@ export default function SpriteDebug() {
           </div>
           <VirtualizedGrid
             items={filtered}
-            rowHeight={220}
+            rowHeight={320}
             renderItem={(item) => (
               <PokemonCard result={item} onStatusChange={handleStatus} />
             )}

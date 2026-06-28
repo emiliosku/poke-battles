@@ -106,6 +106,8 @@ export const LEADERBOARD = [
 // page must surface: vanilla (hatterene), a Mega (aerodactyl-mega),
 // a regional (slowking-galar), and a freshly-released form whose
 // sprite has not yet been uploaded to the CDN (maushold-three).
+// `canonical_hits` / `derived_hits` are lists (in FOLDER_EXT order)
+// of every probe that returned 2xx, not just the first match.
 export const SPRITE_STATUS = {
   checked_at: 1735689600,
   duration_s: 1.42,
@@ -117,8 +119,12 @@ export const SPRITE_STATUS = {
       types: ["Psychic", "Fairy"],
       canonical_slug: "hatterene",
       derived_slug: "hatterene",
-      canonical_hit: "gen5ani hatterene.gif",
-      derived_hit: null,
+      canonical_hits: [
+        "gen5ani hatterene.gif",
+        "ani hatterene.gif",
+        "dex hatterene.png",
+      ],
+      derived_hits: [],
       is_cap: false,
     },
     {
@@ -127,8 +133,13 @@ export const SPRITE_STATUS = {
       types: ["Poison", "Psychic"],
       canonical_slug: "slowkinggalar",
       derived_slug: "slowking-galar",
-      canonical_hit: null,
-      derived_hit: "gen5ani slowking-galar.gif",
+      canonical_hits: [],
+      derived_hits: [
+        "gen5ani slowking-galar.gif",
+        "ani slowking-galar.gif",
+        "dex slowking-galar.png",
+        "home slowking-galar.png",
+      ],
       is_cap: false,
     },
     {
@@ -137,8 +148,11 @@ export const SPRITE_STATUS = {
       types: ["Rock", "Flying"],
       canonical_slug: "aerodactylmega",
       derived_slug: "aerodactyl-mega",
-      canonical_hit: null,
-      derived_hit: "ani aerodactyl-mega.gif",
+      canonical_hits: [],
+      derived_hits: [
+        "ani aerodactyl-mega.gif",
+        "dex aerodactyl-mega.png",
+      ],
       is_cap: false,
     },
     {
@@ -147,8 +161,8 @@ export const SPRITE_STATUS = {
       types: ["Normal"],
       canonical_slug: "mausholdthree",
       derived_slug: "maushold-three",
-      canonical_hit: null,
-      derived_hit: null,
+      canonical_hits: [],
+      derived_hits: [],
       is_cap: false,
     },
   ],

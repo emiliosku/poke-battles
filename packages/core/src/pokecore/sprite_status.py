@@ -53,10 +53,12 @@ class SpriteResult:
     types: list[str]
     canonical_slug: str
     derived_slug: str
-    # "<folder> <slug>.<ext>" of the first URL that returned 2xx, or
-    # ``None`` if neither slug resolved.
-    canonical_hit: str | None
-    derived_hit: str | None
+    # ``"<folder> <slug>.<ext>"`` of every URL that returned 2xx, in
+    # ``FOLDER_EXT`` order. Empty when the slug has no sprites on the
+    # CDN. The debug page renders all 7 slots so the operator can see
+    # which folders the CDN actually serves for each mon.
+    canonical_hits: list[str]
+    derived_hits: list[str]
     # True for community-created CAP mons; they have a negative ``num``
     # in the Showdown dex and aren't part of the official games.
     is_cap: bool
@@ -96,25 +98,32 @@ def _probe(url: str, timeout: float = PROBE_TIMEOUT_S) -> bool:
         return False
 
 
-def _resolve(slug: str) -> str | None:
-    """Return ``"<folder> <slug>.<ext>"`` of the first URL that 200s, or None."""
+def _resolve_all(slug: str) -> list[str]:
+    """Return ``"<folder> <slug>.<ext>"`` for every URL that 200s, in
+    ``FOLDER_EXT`` order. Empty list means the CDN has no sprite for
+    this slug under any known folder/format."""
+    hits: list[str] = []
     for folder, ext in FOLDER_EXT:
         if _probe(f"{CDN}/{folder}/{slug}.{ext}"):
-            return f"{folder} {slug}.{ext}"
-    return None
+            hits.append(f"{folder} {slug}.{ext}")
+    return hits
 
 
 def _probe_one(species_id: str, name: str, types: list[str], is_cap: bool) -> SpriteResult:
     canonical = species_id
     derived = derive_sprite_id(name) if name else species_id
+    canonical_hits = _resolve_all(canonical)
+    # Avoid probing the same slug twice; the debug page treats an empty
+    # derived_hits list as "see the canonical cell" for vanilla species.
+    derived_hits = _resolve_all(derived) if derived != canonical else []
     return SpriteResult(
         species_id=species_id,
         name=name,
         types=list(types),
         canonical_slug=canonical,
         derived_slug=derived,
-        canonical_hit=_resolve(canonical),
-        derived_hit=_resolve(derived) if derived != canonical else None,
+        canonical_hits=canonical_hits,
+        derived_hits=derived_hits,
         is_cap=is_cap,
     )
 
