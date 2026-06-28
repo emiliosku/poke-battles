@@ -37,20 +37,35 @@ type CellState = "ok" | "missing";
 
 // A probe hit is the literal string ``"<folder> <slug>.<ext>"`` from
 // the backend. Each slot pairs a folder with whatever hit (if any)
-// the probe recorded for it. The probe returns hits in FOLDER_EXT
-// order, so ``hits[i]`` belongs to ``FOLDERS[i]``.
+// the probe recorded for that folder.
 interface SlotDescriptor {
   folder: string;
   ext: string;
   hit: string | null;
 }
 
-function slotsFor(slug: string, hits: string[]): SlotDescriptor[] {
+// Build a per-folder lookup so each FOLDERS slot is matched to its
+// own hit by folder name, not by index. The probe returns hits in
+// FOLDER_EXT order but with missing folders excluded, so ``hits[i]``
+// is NOT guaranteed to correspond to ``FOLDERS[i]`` — e.g. for
+// aerodactyl-mega the gen5ani probe 404s, so ``hits[0]`` is the
+// ``ani`` hit and indexing by position would put the ani image in
+// the gen5ani slot. Looking up by folder keeps the slot label and
+// the image in agreement.
+export function slotsFor(slug: string, hits: string[]): SlotDescriptor[] {
   void slug;
-  return FOLDERS.map(([folder, ext], i) => ({
+  const byFolder = new Map<string, string>();
+  for (const hit of hits) {
+    const space = hit.indexOf(" ");
+    if (space < 0) continue;
+    const folder = hit.slice(0, space);
+    const filename = hit.slice(space + 1);
+    if (folder && filename) byFolder.set(folder, hit);
+  }
+  return FOLDERS.map(([folder, ext]) => ({
     folder,
     ext,
-    hit: hits[i] ?? null,
+    hit: byFolder.get(folder) ?? null,
   }));
 }
 
