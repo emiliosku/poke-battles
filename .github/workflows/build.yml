@@ -208,5 +208,9 @@ jobs:
           script: |
             cd /home/ubuntu/oci-infra
             docker compose pull poke-battles-api poke-battles-web poke-battles-showdown poke-battles-showdown-client
-            docker compose up -d poke-battles-api poke-battles-web poke-battles-showdown poke-battles-showdown-client
+            # --force-recreate so a no-op API build (empty commit, cache hit,
+            # or an unchanged sub-service) still restarts the containers and
+            # a stale image can't linger forever. The few seconds of
+            # downtime per push is acceptable for this dev stack.
+            docker compose up -d --force-recreate poke-battles-api poke-battles-web poke-battles-showdown poke-battles-showdown-client
             docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile
