@@ -130,11 +130,6 @@ jobs:
         with:
           context: .
           file: web/Dockerfile
-          # Bake the /debug/sprites page into the production bundle so
-          # the dev tools are reachable from the deployed site (the
-          # route is gated by the env var at build time; the rest of
-          # the page is identical to the dev experience).
-          build-args: VITE_ENABLE_DEBUG=true
           platforms: linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ env.REGISTRY }}/${{ github.repository_owner }}/poke-battles-web:latest

@@ -3,11 +3,14 @@ FROM node:20-alpine AS build
 WORKDIR /app
 COPY web/ /app/
 ENV VITE_BASE_PATH=/poke-battles/
-# Set to "true" at build time to include the dev-only /debug/sprites
-# route in the production bundle. Default omits it (tree-shaken via
-# the `import.meta.env.VITE_ENABLE_DEBUG === "true"` guard in App.tsx).
-ARG VITE_ENABLE_DEBUG=false
-ENV VITE_ENABLE_DEBUG=${VITE_ENABLE_DEBUG}
+# Bake the /debug/sprites page into the production bundle. The
+# `import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEBUG === "true"`
+# guard in App.tsx reads this at build time. We set it here to "true"
+# unconditionally so the deployed image always exposes the debug
+# route (the size cost is ~7kB). The route hits the live pokeapi's
+# /api/sprites/status endpoint and the Showdown CDN — no auth, no
+# mutating endpoints, so the surface is safe to leave open.
+ENV VITE_ENABLE_DEBUG=true
 RUN npm ci --no-audit --no-fund && \
     npm run build
 
