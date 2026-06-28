@@ -246,13 +246,12 @@ jobs:
       # GHCR's :latest edge cache) and re-tag locally so docker compose
       # picks up the new image. --force-recreate restarts the containers
       # even when the image digest hasn't changed since the last deploy.
+      # Note: appleboy/ssh-action's `env:` block sets vars on the action
+      # runner, NOT the remote shell, so the digests are inlined into the
+      # script via ${{ }} interpolation (the action substitutes them
+      # before the script is sent over SSH).
       - name: SSH into server, pull by digest, restart services
         uses: appleboy/ssh-action@v1
-        env:
-          API_DIGEST: ${{ needs.api.outputs.digest }}
-          WEB_DIGEST: ${{ needs.web.outputs.digest }}
-          SHOWDOWN_DIGEST: ${{ needs.showdown.outputs.digest }}
-          SHOWDOWN_CLIENT_DIGEST: ${{ needs.showdown-client.outputs.digest }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
@@ -262,10 +261,10 @@ jobs:
             cd /home/ubuntu/oci-infra
             OWNER="${{ github.repository_owner }}"
             declare -A DIGESTS=(
-              [poke-battles-api]="${API_DIGEST}"
-              [poke-battles-web]="${WEB_DIGEST}"
-              [poke-battles-showdown]="${SHOWDOWN_DIGEST}"
-              [poke-battles-showdown-client]="${SHOWDOWN_CLIENT_DIGEST}"
+              [poke-battles-api]="${{ needs.api.outputs.digest }}"
+              [poke-battles-web]="${{ needs.web.outputs.digest }}"
+              [poke-battles-showdown]="${{ needs.showdown.outputs.digest }}"
+              [poke-battles-showdown-client]="${{ needs.showdown-client.outputs.digest }}"
             )
             for svc in "${!DIGESTS[@]}"; do
               digest="${DIGESTS[$svc]}"
