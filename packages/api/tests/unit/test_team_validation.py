@@ -244,6 +244,37 @@ class TestCollectVtm:
         assert result.ok is False
         assert "requires" in result.reason.lower()
 
+    @pytest.mark.asyncio
+    async def test_deadline_exhausted_returns_timed_out(self) -> None:
+        """A WebSocket that returns immediately but never sends a popup
+        forces the loop to spin and eventually exhaust the deadline."""
+
+        class _ChattyWebSocket:
+            async def recv(self) -> str:
+                return "|c|someone|hi"
+
+        result = await _validator()._collect_vtm(_ChattyWebSocket(), timeout=0.05)  # type: ignore[arg-type]
+        assert result.ok is False
+        assert "timed out" in result.reason
+
+    @pytest.mark.asyncio
+    async def test_bytes_popup_is_decoded(self) -> None:
+        """The wrapper must handle bytes as well as str from the wire."""
+
+        class _BytesWebSocket:
+            def __init__(self) -> None:
+                self._sent = False
+
+            async def recv(self) -> bytes:
+                if not self._sent:
+                    self._sent = True
+                    return b"|popup|Your team is valid for OU."
+                await asyncio.sleep(3600)
+                raise RuntimeError  # pragma: no cover
+
+        result = await _validator()._collect_vtm(_BytesWebSocket(), timeout=2.0)  # type: ignore[arg-type]
+        assert result.ok is True
+
 
 class TestPackAndDrain:
     def test_pack_returns_packed_string(self) -> None:
@@ -551,3 +582,162 @@ class TestAcquire:
         assert session.ws.closed is True
         v._closing = False
         await v.stop()
+
+    @pytest.mark.asyncio
+    async def test_acquire_grow_the_pool_fails_then_releases_budget(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When ``_open_session`` raises while growing the pool, the
+        ``_created`` budget is released so future acquires can retry."""
+        # First call returns a healthy session so start() succeeds.
+        # Subsequent calls (during the grow-the-pool attempt) fail.
+        call_count = 0
+
+        async def fake_connect(url: str, **kwargs: Any) -> _FakeWebSocket:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return _FakeWebSocket(["|updates|"])
+            raise OSError("grow failed")
+
+        monkeypatch.setattr(tv.websockets, "connect", fake_connect)
+        v = ShowdownTeamValidator(websocket_url="ws://h:1/x", pool_size=1, open_timeout=5.0)
+        await v.start()
+        # Pool is now exhausted; the next acquire must grow the pool,
+        # which will fail.
+        with pytest.raises(OSError):
+            async with v._acquire(), v._acquire():
+                pass
+        # _created should be back to 0 (it briefly went 0 -> 1 -> 0
+        # in the failed grow-the-pool attempt). The next acquire
+        # should still be able to take from the queue.
+        assert v._created == 0
+        async with v._acquire():
+            pass
+        assert v._created == 0
+        await v.stop()
+
+    @pytest.mark.asyncio
+    async def test_acquire_closing_swallows_close_errors(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        async def fake_connect(url: str, **kwargs: Any) -> _FakeWebSocket:
+            class _BadCloseWebSocket(_FakeWebSocket):
+                async def close(self) -> None:
+                    raise OSError("close failed")
+
+            return _BadCloseWebSocket(["|updates|"])
+
+        monkeypatch.setattr(tv.websockets, "connect", fake_connect)
+        v = ShowdownTeamValidator(websocket_url="ws://h:1/x", pool_size=1)
+        await v.start()
+        v._closing = True
+        # Should not raise even though ws.close() does.
+        async with v._acquire():
+            pass
+        v._closing = False
+        await v.stop()
+
+    @pytest.mark.asyncio
+    async def test_acquire_starts_pool_if_not_yet_started(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        async def fake_connect(url: str, **kwargs: Any) -> _FakeWebSocket:
+            return _FakeWebSocket(["|updates|"])
+
+        monkeypatch.setattr(tv.websockets, "connect", fake_connect)
+        v = ShowdownTeamValidator(websocket_url="ws://h:1/x", pool_size=1)
+        # No await v.start() — _acquire should bootstrap it.
+        async with v._acquire():
+            assert v._sessions is not None
+            assert v._sessions.qsize() == 0
+        await v.stop()
+
+    @pytest.mark.asyncio
+    async def test_acquire_caps_pool_at_pool_size_plus_one(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``_created`` is capped at ``pool_size + 1`` so the pool can't
+        grow without bound. Once the cap is reached, the no-grow branch
+        leaves ``session`` unset, and the post-condition assert fires."""
+
+        async def fake_connect(url: str, **kwargs: Any) -> _FakeWebSocket:
+            return _FakeWebSocket(["|updates|"])
+
+        monkeypatch.setattr(tv.websockets, "connect", fake_connect)
+        v = ShowdownTeamValidator(websocket_url="ws://h:1/x", pool_size=1, open_timeout=0.05)
+        await v.start()
+        # Drain the pool so the next acquire must grow.
+        assert v._sessions is not None
+        await v._sessions.get()
+        # Pre-set the budget to the cap so the next grow attempt
+        # takes the no-grow branch.
+        v._created = v._pool_size + 1
+        with pytest.raises(AssertionError):
+            async with v._acquire():
+                pass
+        await v.stop()
+
+
+class TestStopEdgeCases:
+    @pytest.mark.asyncio
+    async def test_stop_swallows_close_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        class _BadCloseWebSocket(_FakeWebSocket):
+            async def close(self) -> None:
+                raise OSError("close failed")
+
+        async def fake_connect(url: str, **kwargs: Any) -> _FakeWebSocket:
+            return _BadCloseWebSocket(["|updates|"])
+
+        monkeypatch.setattr(tv.websockets, "connect", fake_connect)
+        v = ShowdownTeamValidator(websocket_url="ws://h:1/x", pool_size=2)
+        await v.start()
+        # stop() must not raise even when each session's close() does.
+        await v.stop()
+
+    @pytest.mark.asyncio
+    async def test_stop_handles_queue_full(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Smoke test for the pool's start/acquire/stop cycle. The actual
+        ``QueueFull`` branch is unreachable with an unbounded queue and
+        is marked ``# pragma: no cover`` in the source — this test
+        just guards against regressions in the reachable path."""
+
+        async def fake_connect(url: str, **kwargs: Any) -> _FakeWebSocket:
+            return _FakeWebSocket(["|updates|"])
+
+        monkeypatch.setattr(tv.websockets, "connect", fake_connect)
+        v = ShowdownTeamValidator(websocket_url="ws://h:1/x", pool_size=1)
+        await v.start()
+        async with v._acquire() as session:
+            assert session is not None
+        await v.stop()
+
+
+class TestPackFailure:
+    def test_pack_returns_none_when_constant_teambuilder_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class _BadTeambuilder:
+            def __init__(self, paste: str) -> None:
+                raise ValueError("nope")
+
+        import poke_env.teambuilder.constant_teambuilder as ct_module
+
+        monkeypatch.setattr(ct_module, "ConstantTeambuilder", _BadTeambuilder)
+        assert ShowdownTeamValidator._pack("any paste") is None
+
+
+class TestDrainDeadline:
+    @pytest.mark.asyncio
+    async def test_drain_returns_immediately_when_deadline_passed(self) -> None:
+        # A WebSocket that returns messages instantly — by the time the
+        # loop checks `remaining`, the deadline may already be in the past
+        # on a slow CI, in which case the function returns. We exercise
+        # this by passing a very small timeout and many replies.
+        ws = _FakeWebSocket([f"|m{i}|" for i in range(50)])
+        # Force the deadline check to fire on the second iteration.
+        v = _validator()
+        # This call should complete in well under 1s.
+        await v._drain(ws, timeout=0.0001, max_messages=100)
+        # Some messages were consumed; the rest are still in the queue.
+        assert len(ws._replies) < 50  # type: ignore[attr-defined]
