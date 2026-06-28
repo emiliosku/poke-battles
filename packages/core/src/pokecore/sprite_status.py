@@ -31,7 +31,7 @@ CDN = "https://play.pokemonshowdown.com/sprites"
 USER_AGENT = "Mozilla/5.0"  # CDN blocks the default urllib UA.
 PROBE_TIMEOUT_S = 5.0
 CACHE_TTL_S = 3600.0
-DEFAULT_WORKERS = 32
+DEFAULT_WORKERS = 16  # keep modest — 32 hammered the CI runner
 
 # Mirror of web/src/sprites.tsx — gen5ani (pixel art, gif) first,
 # then newer animated, then static Gen 7+, then other visual styles.
