@@ -193,9 +193,7 @@ class TestTeams:
     def test_validate_route_returns_validator_result(
         self, authed_client: TestClient, stub_validator: _StubTeamValidator
     ) -> None:
-        stub_validator.answers.append(
-            TeamValidationResult(ok=True, reason="")
-        )
+        stub_validator.answers.append(TeamValidationResult(ok=True, reason=""))
         r = authed_client.post(
             "/teams/validate",
             json={
