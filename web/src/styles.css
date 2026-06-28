@@ -491,6 +491,7 @@ th { color: var(--muted); font-size: 12px; letter-spacing: 0.08em; text-transfor
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   text-align: center;
 }
@@ -505,6 +506,13 @@ th { color: var(--muted); font-size: 12px; letter-spacing: 0.08em; text-transfor
   font-size: 11px;
   color: var(--muted);
   line-height: 1.3;
+}
+.paste-preview-details {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  text-align: left;
 }
 .paste-preview-moves {
   display: grid;
@@ -527,8 +535,8 @@ th { color: var(--muted); font-size: 12px; letter-spacing: 0.08em; text-transfor
   text-transform: capitalize;
 }
 .move-slot.empty { color: var(--muted); font-weight: 500; }
-.pokemon-sprite.preview-sprite { width: 72px; height: 72px; }
-.sprite-orb.preview-sprite { width: 72px; height: 72px; }
+.pokemon-sprite.preview-sprite { width: 96px; height: 96px; }
+.sprite-orb.preview-sprite { width: 96px; height: 96px; }
 .paste-preview-row.skeleton-row { opacity: 0.7; }
 .paste-preview-row.skeleton-row .paste-preview-name,
 .paste-preview-row.skeleton-row .move-slot {

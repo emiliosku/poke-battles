@@ -48,14 +48,16 @@ function PreviewRow({ pokemon }: { pokemon: PokemonPreview }) {
           variant="home"
         />
         <div className="paste-preview-name">{label}</div>
+      </div>
+      <div className="paste-preview-details">
         <div className="paste-preview-meta">
           {pokemon.ability || "No ability"}
         </div>
         <div className="paste-preview-meta">
           {pokemon.item ? `Held: ${pokemon.item}` : "No item"}
         </div>
+        <MoveSlotList moves={pokemon.moves} />
       </div>
-      <MoveSlotList moves={pokemon.moves} />
     </div>
   );
 }
@@ -79,10 +81,12 @@ function PastePreviewSkeleton({ count }: { count: number }) {
             <div className="sprite-orb empty preview-sprite" />
             <div className="paste-preview-name">Loading…</div>
           </div>
-          <div className="paste-preview-moves">
-            {Array.from({ length: 4 }).map((__, j) => (
-              <div key={j} className="move-slot empty">…</div>
-            ))}
+          <div className="paste-preview-details">
+            <div className="paste-preview-moves">
+              {Array.from({ length: 4 }).map((__, j) => (
+                <div key={j} className="move-slot empty">…</div>
+              ))}
+            </div>
           </div>
         </div>
       ))}
