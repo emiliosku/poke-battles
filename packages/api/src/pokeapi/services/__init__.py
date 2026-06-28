@@ -159,6 +159,11 @@ class BattleService:
     def chooser_for(self, model_name: str) -> Callable[[AgentPlayer, Any], Any]:
         return build_chooser(model_name, self._models.get(model_name))
 
+    def websocket_url(self) -> str | None:
+        if self.handle is None:
+            return None
+        return f"ws://localhost:{self.handle.port}/showdown/websocket"
+
     async def run_battle(
         self,
         *,
