@@ -119,6 +119,7 @@ export const SPRITE_STATUS = {
       derived_slug: "hatterene",
       canonical_hit: "gen5ani hatterene.gif",
       derived_hit: null,
+      is_cap: false,
     },
     {
       species_id: "slowkinggalar",
@@ -128,6 +129,7 @@ export const SPRITE_STATUS = {
       derived_slug: "slowking-galar",
       canonical_hit: null,
       derived_hit: "gen5ani slowking-galar.gif",
+      is_cap: false,
     },
     {
       species_id: "aerodactylmega",
@@ -137,6 +139,7 @@ export const SPRITE_STATUS = {
       derived_slug: "aerodactyl-mega",
       canonical_hit: null,
       derived_hit: "ani aerodactyl-mega.gif",
+      is_cap: false,
     },
     {
       species_id: "mausholdthree",
@@ -146,6 +149,7 @@ export const SPRITE_STATUS = {
       derived_slug: "maushold-three",
       canonical_hit: null,
       derived_hit: null,
+      is_cap: false,
     },
   ],
 };

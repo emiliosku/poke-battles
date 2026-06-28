@@ -10,6 +10,7 @@ export interface SpriteResult {
   derived_slug: string;
   canonical_hit: string | null;
   derived_hit: string | null;
+  is_cap: boolean;
 }
 
 export interface SpriteStatus {
@@ -44,13 +45,7 @@ function SpriteCell({
         <span>{result[`${variant}_slug`]}</span>
       </div>
       <div className="sprite-cell-art">
-        {loadState === "missing" && (
-          <div className="sprite-cell-missing" aria-label="404">
-            404
-          </div>
-        )}
-        {loadState === "loading" && <div className="sprite-cell-loading">…</div>}
-        {(loadState === "ok" || loadState === "error") && url && (
+        {url && (
           <img
             src={url}
             alt={`${result.name} (${label})`}
@@ -58,7 +53,17 @@ function SpriteCell({
             onError={onError}
             loading="lazy"
             decoding="async"
+            style={{ visibility: loadState === "ok" ? "visible" : "hidden" }}
           />
+        )}
+        {loadState === "loading" && url && (
+          <div className="sprite-cell-loading" aria-label="loading">…</div>
+        )}
+        {loadState === "error" && (
+          <div className="sprite-cell-error" aria-label="error">!</div>
+        )}
+        {loadState === "missing" && (
+          <div className="sprite-cell-missing" aria-label="404">404</div>
         )}
       </div>
     </div>
@@ -105,6 +110,7 @@ function PokemonCard({
       <header className="sprite-card-head">
         <strong>{result.name}</strong>
         <code>{result.species_id}</code>
+        {result.is_cap && <span className="badge cap" title="Create-A-Pokémon, not in the official games">CAP</span>}
       </header>
       <div className="sprite-card-types">
         {result.types.map((t) => (
@@ -191,6 +197,7 @@ export default function SpriteDebug() {
   const [q, setQ] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [onlyFailed, setOnlyFailed] = useState(false);
+  const [hideCap, setHideCap] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [perSpeciesStatus, setPerSpeciesStatus] = useState<
     Record<string, "ok" | "missing" | "error">
@@ -241,8 +248,11 @@ export default function SpriteDebug() {
     if (onlyFailed) {
       out = out.filter((r) => perSpeciesStatus[r.species_id] !== "ok");
     }
+    if (hideCap) {
+      out = out.filter((r) => !r.is_cap);
+    }
     return out;
-  }, [status, q, typeFilter, onlyFailed, perSpeciesStatus]);
+  }, [status, q, typeFilter, onlyFailed, hideCap, perSpeciesStatus]);
 
   const stats = useMemo(() => {
     if (!status) return { total: 0, ok: 0, missing: 0, error: 0 };
@@ -312,6 +322,14 @@ export default function SpriteDebug() {
                 onChange={(e) => setOnlyFailed(e.target.checked)}
               />
               <span>Only show failed</span>
+            </label>
+            <label className="row" style={{ gap: 6 }}>
+              <input
+                type="checkbox"
+                checked={hideCap}
+                onChange={(e) => setHideCap(e.target.checked)}
+              />
+              <span>Hide CAP</span>
             </label>
           </div>
           <div className="row" style={{ gap: 8 }}>

@@ -190,6 +190,7 @@ class SpriteResultEntry(BaseModel):
     derived_slug: str
     canonical_hit: str | None
     derived_hit: str | None
+    is_cap: bool = False
 
 
 class SpriteStatusResponse(BaseModel):

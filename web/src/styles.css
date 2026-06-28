@@ -678,3 +678,14 @@ th { color: var(--muted); font-size: 12px; letter-spacing: 0.08em; text-transfor
   font-size: 22px;
   font-weight: 800;
 }
+.sprite-cell-error {
+  color: #fcd34d;
+  font-size: 22px;
+  font-weight: 800;
+}
+.badge.cap {
+  background: rgba(252, 211, 77, 0.18);
+  color: #fcd34d;
+  border-color: rgba(252, 211, 77, 0.35);
+  font-weight: 700;
+}

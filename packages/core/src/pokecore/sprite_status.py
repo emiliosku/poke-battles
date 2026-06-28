@@ -57,6 +57,9 @@ class SpriteResult:
     # ``None`` if neither slug resolved.
     canonical_hit: str | None
     derived_hit: str | None
+    # True for community-created CAP mons; they have a negative ``num``
+    # in the Showdown dex and aren't part of the official games.
+    is_cap: bool
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -101,7 +104,7 @@ def _resolve(slug: str) -> str | None:
     return None
 
 
-def _probe_one(species_id: str, name: str, types: list[str]) -> SpriteResult:
+def _probe_one(species_id: str, name: str, types: list[str], is_cap: bool) -> SpriteResult:
     canonical = species_id
     derived = derive_sprite_id(name) if name else species_id
     return SpriteResult(
@@ -112,6 +115,7 @@ def _probe_one(species_id: str, name: str, types: list[str]) -> SpriteResult:
         derived_slug=derived,
         canonical_hit=_resolve(canonical),
         derived_hit=_resolve(derived) if derived != canonical else None,
+        is_cap=is_cap,
     )
 
 
@@ -134,6 +138,8 @@ def probe_all(
                 entry.species_id,
                 entry.name,
                 list(entry.types),
+                # CAP mons get a negative ``num`` in the Showdown dex.
+                entry.num < 0,
             ): entry.species_id
             for entry in entries
         }

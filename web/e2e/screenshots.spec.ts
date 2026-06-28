@@ -34,7 +34,10 @@ async function mockApi(page: Page, opts: { signedIn: boolean }) {
   await page.route(/\/api\/.*/, async (route: Route) => {
     const req = route.request();
     const url = new URL(req.url());
-    const path = url.pathname;
+    // Strip any base path (e.g. /poke-battles) so the same mock matches
+    // both the dev server (no subpath) and a deployed site (Vite BASE_URL).
+    const apiIdx = url.pathname.indexOf("/api/");
+    const path = apiIdx >= 0 ? url.pathname.slice(apiIdx) : url.pathname;
     const method = req.method();
 
     const json = (status: number, body: unknown) =>
