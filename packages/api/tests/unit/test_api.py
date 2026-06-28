@@ -14,6 +14,31 @@ from pokeapi.auth import create_session
 from pokeapi.db import session_scope
 from pokeapi.db.models import Battle, User
 from pokeapi.main import create_app
+from pokeapi.services.team_validation import TeamValidationResult
+
+
+class _StubTeamValidator:
+    """In-memory stand-in for :class:`ShowdownTeamValidator`.
+
+    Tests register a list of ``(paste, format) -> result`` answers before
+    the request runs. The stub records the calls so tests can assert on
+    what the API actually sent to the validator.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str | None, str]] = []
+        self.answers: list[TeamValidationResult] = []
+        self._default = TeamValidationResult(ok=True, reason="")
+        self.stop_calls = 0
+
+    async def validate(self, team_paste: str | None, battle_format: str) -> TeamValidationResult:
+        self.calls.append((team_paste, battle_format))
+        if self.answers:
+            return self.answers.pop(0)
+        return self._default
+
+    async def stop(self) -> None:
+        self.stop_calls += 1
 
 
 @pytest.fixture
@@ -38,6 +63,14 @@ def authed_client(client: TestClient) -> TestClient:
     return client
 
 
+@pytest.fixture
+def stub_validator(client: TestClient) -> _StubTeamValidator:
+    """Inject a stub team validator on the app so routes never hit Showdown."""
+    stub = _StubTeamValidator()
+    client.app.state.team_validator = stub  # type: ignore[attr-defined]
+    return stub
+
+
 class TestHealth:
     def test_health(self, client: TestClient) -> None:
         r = client.get("/health")
@@ -57,7 +90,9 @@ class TestTeams:
         r = client.get("/teams")
         assert r.status_code == 401
 
-    def test_create_and_get(self, authed_client: TestClient) -> None:
+    def test_create_and_get(
+        self, authed_client: TestClient, stub_validator: _StubTeamValidator
+    ) -> None:
         r = authed_client.post(
             "/teams",
             json={
@@ -80,6 +115,12 @@ class TestTeams:
         team_id = body["id"]
         assert body["name"] == "My team"
         assert body["pokemon_count"] == 1
+        assert stub_validator.calls == [
+            (
+                body["paste"],
+                "gen9ou",
+            )
+        ]
 
         r2 = authed_client.get(f"/teams/{team_id}")
         assert r2.status_code == 200
@@ -93,12 +134,143 @@ class TestTeams:
         assert r.status_code == 400
         assert "Invalid paste" in r.json()["detail"]
 
+    def test_create_rejects_illegal_team_for_format(
+        self, authed_client: TestClient, stub_validator: _StubTeamValidator
+    ) -> None:
+        # Validator says "this team isn't legal for the requested format" —
+        # the route must return 400 with the same Showdown message format
+        # used by /battles.
+        stub_validator.answers.append(
+            TeamValidationResult(
+                ok=False,
+                reason=(
+                    "Hatterene is level 50, but this format allows level 100 Pokémon. "
+                    "(If this was intentional, add exactly 1 to one of your EVs, "
+                    "which won't change its stats but will tell us that it wasn't a mistake)."
+                ),
+            )
+        )
+        r = authed_client.post(
+            "/teams",
+            json={
+                "name": "VGC team",
+                "paste": (
+                    "Hatterene @ Life Orb\n"
+                    "Ability: Magic Bounce\n"
+                    "Level: 50\n"
+                    "Tera Type: Psychic\n"
+                    "EVs: 252 HP / 252 SpA / 4 SpD\n"
+                    "Quiet Nature\n"
+                    "- Expanding Force\n"
+                ),
+                "format": "gen9anythinggoes",
+            },
+        )
+        assert r.status_code == 400, r.text
+        detail = r.json()["detail"]
+        assert detail.startswith("Team rejected by Showdown:")
+        assert "Hatterene is level 50" in detail
+
+    def test_create_skips_validator_when_format_omitted(
+        self, authed_client: TestClient, stub_validator: _StubTeamValidator
+    ) -> None:
+        r = authed_client.post(
+            "/teams",
+            json={
+                "name": "Formatless",
+                "paste": (
+                    "Garchomp @ Choice Scarf\n"
+                    "Ability: Rough Skin\n"
+                    "EVs: 252 Atk / 4 SpD / 252 Spe\n"
+                    "Jolly Nature\n"
+                    "- Earthquake\n"
+                ),
+            },
+        )
+        assert r.status_code == 201, r.text
+        assert stub_validator.calls == []
+
+    def test_validate_route_returns_validator_result(
+        self, authed_client: TestClient, stub_validator: _StubTeamValidator
+    ) -> None:
+        stub_validator.answers.append(
+            TeamValidationResult(ok=True, reason="")
+        )
+        r = authed_client.post(
+            "/teams/validate",
+            json={
+                "paste": (
+                    "Garchomp @ Choice Scarf\n"
+                    "Ability: Rough Skin\n"
+                    "EVs: 252 Atk / 4 SpD / 252 Spe\n"
+                    "Jolly Nature\n"
+                    "- Earthquake\n"
+                ),
+                "format": "gen9ou",
+            },
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["ok"] is True
+        assert body["detail"] == ""
+        assert stub_validator.calls == [
+            (
+                (
+                    "Garchomp @ Choice Scarf\n"
+                    "Ability: Rough Skin\n"
+                    "EVs: 252 Atk / 4 SpD / 252 Spe\n"
+                    "Jolly Nature\n"
+                    "- Earthquake\n"
+                ),
+                "gen9ou",
+            )
+        ]
+
+    def test_validate_route_surfaces_rejection(
+        self, authed_client: TestClient, stub_validator: _StubTeamValidator
+    ) -> None:
+        stub_validator.answers.append(
+            TeamValidationResult(ok=False, reason="Aerodactyl-Mega is illegal in this format.")
+        )
+        r = authed_client.post(
+            "/teams/validate",
+            json={
+                "paste": (
+                    "Aerodactyl-Mega @ Aerodactylite\n"
+                    "Ability: Unnerve\n"
+                    "EVs: 248 HP / 252 Atk / 8 SpD\n"
+                    "Adamant Nature\n"
+                    "- Stone Edge\n"
+                ),
+                "format": "gen9ou",
+            },
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["ok"] is False
+        assert "Aerodactyl-Mega is illegal" in body["detail"]
+
+    def test_validate_route_rejects_unparseable_paste(
+        self, authed_client: TestClient, stub_validator: _StubTeamValidator
+    ) -> None:
+        r = authed_client.post(
+            "/teams/validate",
+            json={"paste": "garbage", "format": "gen9ou"},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["ok"] is False
+        assert body["detail"].startswith("Invalid paste:")
+        # Validator must not be consulted when the paste doesn't even parse.
+        assert stub_validator.calls == []
+
     def test_get_missing(self, client: TestClient) -> None:
         r = client.get("/teams/9999")
         assert r.status_code == 404
 
 
 class TestBattles:
+    @pytest.mark.integration
     def test_create_battle(self, authed_client: TestClient) -> None:
         r = authed_client.post(
             "/battles",
@@ -154,6 +326,7 @@ class TestPracticeBattles:
 
 
 class TestSimulations:
+    @pytest.mark.integration
     def test_create_round_robin(self, authed_client: TestClient) -> None:
         r = authed_client.post(
             "/simulations",

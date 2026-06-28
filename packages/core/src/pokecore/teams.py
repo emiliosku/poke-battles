@@ -87,7 +87,7 @@ class EVSpread:
             value = int(value_token)
             if not 0 <= value <= 252:
                 raise ValueError(f"EV value {value} out of range [0, 252]")
-            if value % 4 != 0:
+            if value != 1 and value % 4 != 0:
                 raise ValueError(f"EV value {value} must be divisible by 4")
             values[stat] = value
         total = sum(values.values())

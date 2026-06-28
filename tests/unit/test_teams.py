@@ -85,6 +85,11 @@ class TestEVSpread:
         with pytest.raises(ValueError):
             EVSpread.parse("5 Atk")
 
+    def test_parse_wildcard_value_one(self) -> None:
+        spread = EVSpread.parse("1 Atk")
+        assert spread.values[Stat.ATTACK] == 1
+        assert spread.total == 1
+
     def test_parse_total_over_510(self) -> None:
         with pytest.raises(ValueError):
             EVSpread.parse("252 HP / 252 Atk / 4 Def / 4 SpD / 4 Spe")

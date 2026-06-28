@@ -36,6 +36,16 @@ class TeamPreviewRequest(BaseModel):
     paste: str = Field(min_length=1, description="Showdown paste format")
 
 
+class TeamValidateRequest(BaseModel):
+    paste: str = Field(min_length=1, description="Showdown paste format")
+    format: str = Field(min_length=1, description="Showdown format id, e.g. 'gen9ou'")
+
+
+class TeamValidateResponse(BaseModel):
+    ok: bool
+    detail: str = ""
+
+
 class PokemonPreview(BaseModel):
     nickname: str | None
     species: str
@@ -244,5 +254,7 @@ __all__ = [
     "TeamPreviewRequest",
     "TeamPreviewResponse",
     "TeamResponse",
+    "TeamValidateRequest",
+    "TeamValidateResponse",
     "UserResponse",
 ]

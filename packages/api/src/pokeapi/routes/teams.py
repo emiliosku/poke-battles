@@ -13,7 +13,10 @@ from pokeapi.schemas import (
     TeamPreviewRequest,
     TeamPreviewResponse,
     TeamResponse,
+    TeamValidateRequest,
+    TeamValidateResponse,
 )
+from pokeapi.state import get_team_validator
 from pokecore import parse_team
 from pokecore.teams import PokemonSet, sprite_id
 
@@ -79,6 +82,10 @@ async def create_team(
         parse_team(body.paste)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"Invalid paste: {exc}") from exc
+    if body.format:
+        check = await get_team_validator(request).validate(body.paste, body.format)
+        if not check.ok:
+            raise HTTPException(status_code=400, detail=check.to_detail("Team")) from None
     factory = request.app.state.session_factory
     with session_scope(factory) as session:
         team = Team(
@@ -91,6 +98,20 @@ async def create_team(
         session.add(team)
         session.flush()
         return _team_to_response(team)
+
+
+@router.post("/validate", response_model=TeamValidateResponse)
+async def validate_team(
+    body: TeamValidateRequest,
+    request: Request,
+    user: User = Depends(require_current_user),
+) -> TeamValidateResponse:
+    try:
+        parse_team(body.paste)
+    except ValueError as exc:
+        return TeamValidateResponse(ok=False, detail=f"Invalid paste: {exc}")
+    check = await get_team_validator(request).validate(body.paste, body.format)
+    return TeamValidateResponse(ok=check.ok, detail=check.to_detail("Team"))
 
 
 @router.get("/{team_id}", response_model=TeamResponse)
