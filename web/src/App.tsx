@@ -10,7 +10,13 @@ import Simulations from "./pages/Simulations";
 import SpriteDebug from "./pages/SpriteDebug";
 import Teams from "./pages/Teams";
 
-const SHOW_DEBUG_TOOLS = import.meta.env.DEV;
+// Dev tools (the /debug/sprites page) are enabled when either:
+//   * Vite is running in dev mode (npm run dev), or
+//   * the production build was compiled with VITE_ENABLE_DEBUG=true.
+// Set the env var in the deploy env (e.g. docker compose) to opt in
+// to the debug page in production. Default is dev-only.
+const SHOW_DEBUG_TOOLS =
+  import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEBUG === "true";
 
 function Nav() {
   const { user, loading, logout } = useAuth();

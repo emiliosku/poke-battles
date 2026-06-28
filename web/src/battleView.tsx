@@ -129,7 +129,7 @@ function applyEvent(sides: [SideState, SideState], event: BattleEvent): [SideSta
 // can reuse the exact same behaviour.
 
 function BattleSlotSprite({ slot }: { slot: SlotState }) {
-  return <PokemonSprite speciesId={slot.speciesId} label={slot.active} />;
+  return <PokemonSprite primaryId={slot.speciesId} label={slot.active} />;
 }
 
 export function battleSidesFromEvents(events: BattleEvent[]): [SideState, SideState] {

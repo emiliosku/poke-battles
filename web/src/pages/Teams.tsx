@@ -40,7 +40,12 @@ function PreviewRow({ pokemon }: { pokemon: PokemonPreview }) {
   return (
     <div className="paste-preview-row">
       <div className="paste-preview-sprite">
-        <PokemonSprite speciesId={pokemon.sprite_id} label={label} className="preview-sprite" />
+        <PokemonSprite
+          primaryId={pokemon.sprite_id}
+          fallbackId={pokemon.species_id}
+          label={label}
+          className="preview-sprite"
+        />
         <div className="paste-preview-name">{label}</div>
         <div className="paste-preview-meta">
           {pokemon.ability || "No ability"}
@@ -112,7 +117,12 @@ function usePreview(
         if (controller.signal.aborted) return;
         // Kick off sprite downloads in parallel so by the time the rows
         // mount, the browser has the images in flight (or already cached).
-        prefetchSprites(res.pokemon.map((p) => p.sprite_id));
+        prefetchSprites(
+          res.pokemon.map((p) => ({
+            canonical: p.species_id,
+            derived: p.sprite_id,
+          })),
+        );
         setState({ pokemon: res.pokemon, loading: false, error: "" });
       })
       .catch((err: unknown) => {

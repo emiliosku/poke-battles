@@ -3,6 +3,11 @@ FROM node:20-alpine AS build
 WORKDIR /app
 COPY web/ /app/
 ENV VITE_BASE_PATH=/poke-battles/
+# Set to "true" at build time to include the dev-only /debug/sprites
+# route in the production bundle. Default omits it (tree-shaken via
+# the `import.meta.env.VITE_ENABLE_DEBUG === "true"` guard in App.tsx).
+ARG VITE_ENABLE_DEBUG=false
+ENV VITE_ENABLE_DEBUG=${VITE_ENABLE_DEBUG}
 RUN npm ci --no-audit --no-fund && \
     npm run build
 
