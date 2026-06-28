@@ -21,6 +21,7 @@ RUN apk add --no-cache git python3 make g++ \
     && node build \
     && cp -r dist/data /showdown-data
 
+# sentinel: 2026-06-28T09:35Z — see e77e540 commit message
 FROM python:3.12-slim AS base
 
 ENV PYTHONUNBUFFERED=1 \
