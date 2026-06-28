@@ -1,6 +1,6 @@
 const appBase = (import.meta.env.BASE_URL || "/").replace(/\/$/, "");
 const defaultApiBase = import.meta.env.DEV ? "/api" : `${appBase}/api`;
-const BASE = (import.meta.env.VITE_API_BASE || defaultApiBase).replace(/\/$/, "");
+export const API_BASE = (import.meta.env.VITE_API_BASE || defaultApiBase).replace(/\/$/, "");
 
 export interface UserProfile {
   id: string;
@@ -205,7 +205,7 @@ function query(params: Record<string, string | number | undefined>): string {
 }
 
 async function r<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${url}`, {
+  const res = await fetch(`${API_BASE}${url}`, {
     credentials: "include",
     ...init,
     headers: init?.body
@@ -229,7 +229,7 @@ async function r<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export function authLoginUrl(provider: "github" | "google"): string {
-  return `${BASE}/auth/${provider}/login`;
+  return `${API_BASE}/auth/${provider}/login`;
 }
 
 export function wsUrl(path: string): string {

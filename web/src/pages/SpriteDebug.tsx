@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api } from "../api";
+import { API_BASE, api } from "../api";
 import { cdnUrlForSlug } from "../spriteDebugUtil";
 
 export interface SpriteResult {
@@ -201,9 +201,8 @@ export default function SpriteDebug() {
     setError("");
     if (refresh) setRefreshing(true);
     try {
-      const url = new URL("/api/sprites/status", window.location.origin);
-      if (refresh) url.searchParams.set("refresh", "true");
-      const res = await fetch(url.toString());
+      const url = `${API_BASE}/sprites/status${refresh ? "?refresh=true" : ""}`;
+      const res = await fetch(url, { credentials: "include" });
       if (!res.ok) throw new Error(`status ${res.status}`);
       const data = (await res.json()) as SpriteStatus;
       setStatus(data);
