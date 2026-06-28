@@ -99,8 +99,6 @@ jobs:
       packages: write
     outputs:
       digest: ${{ steps.export-digest.outputs.digest }}
-      bundle_js: ${{ steps.capture-bundle.outputs.js }}
-      bundle_css: ${{ steps.capture-bundle.outputs.css }}
     steps:
       - uses: actions/checkout@v4
       - name: Set up Node
@@ -126,19 +124,6 @@ jobs:
           npm ci
           npm run test:unit
           npm run build
-      - name: Capture bundle hash
-        id: capture-bundle
-        working-directory: web
-        run: |
-          set -euo pipefail
-          JS=$(ls dist/assets/index-*.js | head -1 | xargs -n1 basename)
-          CSS=$(ls dist/assets/index-*.css | head -1 | xargs -n1 basename)
-          if [ -z "$JS" ] || [ -z "$CSS" ]; then
-            echo "::error::no bundle assets found in web/dist/assets/"
-            exit 1
-          fi
-          echo "js=$JS" >> "$GITHUB_OUTPUT"
-          echo "css=$CSS" >> "$GITHUB_OUTPUT"
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
@@ -246,6 +231,14 @@ jobs:
       # GHCR's :latest edge cache) and re-tag locally so docker compose
       # picks up the new image. --force-recreate restarts the containers
       # even when the image digest hasn't changed since the last deploy.
+      # Then extract the web bundle hash from the just-pulled image (the
+      # image is the source of truth — the CI runner's separate
+      # `npm run build` produces a different bundle hash than the one
+      # inside the Docker image, so we can't trust a CI-level capture).
+      # Finally, curl the live site and confirm the served HTML references
+      # the expected bundle. Catches any future regression where the
+      # deploy reports success but the live site is stale.
+      #
       # Note: appleboy/ssh-action's `env:` block sets vars on the action
       # runner, NOT the remote shell, so the digests are inlined into the
       # script via ${{ }} interpolation (the action substitutes them
@@ -256,12 +249,13 @@ jobs:
       # OCI host is arm64, so without --platform the pull fails with
       # "no matching manifest for linux/arm64/v8" even when the image
       # is already cached locally.
-      - name: SSH into server, pull by digest, restart services
+      - name: SSH into server, pull by digest, restart, verify
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
+          command_timeout: 10m
           script: |
             set -euo pipefail
             cd /home/ubuntu/oci-infra
@@ -289,41 +283,50 @@ jobs:
               docker pull --platform "${platform}" "ghcr.io/${OWNER}/${svc}@${digest}"
               docker tag  "ghcr.io/${OWNER}/${svc}@${digest}" "ghcr.io/${OWNER}/${svc}:latest"
             done
+
+            # The web image's index.html is the source of truth for
+            # the bundle hash; the CI runner's own `npm run build`
+            # produces a different (also valid) bundle that would
+            # never be served. Extract from the image we just pulled.
+            echo "Reading expected bundle from web image"
+            TMP_CT=$(docker create --platform "${PLATFORMS[poke-battles-web]}" "ghcr.io/${OWNER}/poke-battles-web:latest")
+            docker cp "${TMP_CT}:/usr/share/nginx/html/poke-battles/index.html" /tmp/expected-index.html
+            docker rm "${TMP_CT}" >/dev/null
+            EXPECTED_JS=$(grep -oE 'index-[A-Za-z0-9_-]+\.js'  /tmp/expected-index.html | head -1)
+            EXPECTED_CSS=$(grep -oE 'index-[A-Za-z0-9_-]+\.css' /tmp/expected-index.html | head -1)
+            if [ -z "$EXPECTED_JS" ] || [ -z "$EXPECTED_CSS" ]; then
+              echo "::error::could not parse bundle filenames from web image index.html"
+              echo "index.html content:"
+              cat /tmp/expected-index.html
+              exit 1
+            fi
+            echo "Expected bundle: js=${EXPECTED_JS} css=${EXPECTED_CSS}"
+
             docker compose up -d --force-recreate \
               poke-battles-api poke-battles-web \
               poke-battles-showdown poke-battles-showdown-client
             docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile 2>/dev/null || true
 
-      # Post-deploy guard: fetch the live /poke-battles/ HTML and confirm
-      # it references the bundle we just shipped. Catches any future
-      # regression (cached CDN, wrong image tag, GHCR edge cache, etc.)
-      # where the deploy reports success but the live site is stale.
-      - name: Verify deployed bundle is live
-        env:
-          EXPECTED_JS: ${{ needs.web.outputs.bundle_js }}
-          EXPECTED_CSS: ${{ needs.web.outputs.bundle_css }}
-        run: |
-          set -euo pipefail
-          if [ -z "$EXPECTED_JS" ] || [ -z "$EXPECTED_CSS" ]; then
-            echo "::error::no expected bundle hash from web job (got js='$EXPECTED_JS' css='$EXPECTED_CSS')"
+            # Wait for the new container to be live, then verify the
+            # served HTML references the expected bundle. We poll for up
+            # to ~60s; the previous (broken) deploy reported success for
+            # the SSH step and left a stale image in place, so the
+            # verification loop is what actually catches that.
+            for i in 1 2 3 4 5 6 7 8 9 10; do
+              HTML=$(curl -sk --max-time 10 "https://${{ secrets.SSH_HOST }}/poke-battles/" || true)
+              if [ -z "$HTML" ]; then
+                echo "  try ${i}: empty response, retrying..."
+              elif echo "$HTML" | grep -q "$EXPECTED_JS" && echo "$HTML" | grep -q "$EXPECTED_CSS"; then
+                echo "OK: live site is serving ${EXPECTED_JS}"
+                exit 0
+              else
+                GOT_JS=$(echo "$HTML" | grep -oE 'index-[A-Za-z0-9_-]+\.js'  | head -1 || true)
+                GOT_CSS=$(echo "$HTML" | grep -oE 'index-[A-Za-z0-9_-]+\.css' | head -1 || true)
+                echo "  try ${i}: live js=${GOT_JS} live css=${GOT_CSS} (want ${EXPECTED_JS})"
+              fi
+              sleep 6
+            done
+            echo "::error::live site still serving old bundle after 60s"
+            echo "  expected js: ${EXPECTED_JS}"
+            echo "  expected css: ${EXPECTED_CSS}"
             exit 1
-          fi
-          URL="https://${{ secrets.SSH_HOST }}/poke-battles/"
-          for i in 1 2 3 4 5 6 7 8 9 10; do
-            HTML=$(curl -sk --max-time 10 "$URL" || true)
-            if [ -z "$HTML" ]; then
-              echo "  try ${i}: empty response, retrying..."
-            elif echo "$HTML" | grep -q "$EXPECTED_JS" && echo "$HTML" | grep -q "$EXPECTED_CSS"; then
-              echo "OK: live site is serving $EXPECTED_JS"
-              exit 0
-            else
-              GOT_JS=$(echo "$HTML" | grep -oE 'index-[A-Za-z0-9_-]+\.js' | head -1 || true)
-              GOT_CSS=$(echo "$HTML" | grep -oE 'index-[A-Za-z0-9_-]+\.css' | head -1 || true)
-              echo "  try ${i}: live=$GOT_JS live_css=$GOT_CSS (want $EXPECTED_JS)"
-            fi
-            sleep 6
-          done
-          echo "::error::live site still serving old bundle after 60s"
-          echo "  expected js: $EXPECTED_JS"
-          echo "  expected css: $EXPECTED_CSS"
-          exit 1
