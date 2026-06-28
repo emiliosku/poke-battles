@@ -107,6 +107,11 @@ class PracticeActionSubmit(BaseModel):
     option_id: str
 
 
+class PracticeTeamPreviewSubmit(BaseModel):
+    request_id: str
+    option_ids: list[str] = Field(default_factory=list, min_length=1)
+
+
 class PracticeActionResponse(BaseModel):
     accepted: bool
 
@@ -229,6 +234,7 @@ __all__ = [
     "PracticeActionResponse",
     "PracticeActionSubmit",
     "PracticeBattleCreate",
+    "PracticeTeamPreviewSubmit",
     "ReplayResponse",
     "SimulationCreate",
     "SimulationResponse",

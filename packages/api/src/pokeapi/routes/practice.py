@@ -18,6 +18,7 @@ from pokeapi.schemas import (
     PracticeActionResponse,
     PracticeActionSubmit,
     PracticeBattleCreate,
+    PracticeTeamPreviewSubmit,
 )
 from pokeapi.state import get_team_validator
 from pokecore.formats import Format, get_format
@@ -140,6 +141,33 @@ async def create_practice_battle(
         if battle_opt is None:
             raise HTTPException(status_code=500, detail="Practice battle vanished after create")
         return _to_response(battle_opt)
+
+
+@router.get("/battles/{battle_id}/team-preview")
+async def get_practice_team_preview(
+    battle_id: str,
+    request: Request,
+    user: User = Depends(require_current_user),
+) -> dict[str, object | None]:
+    _require_owner(request, battle_id, user.id)
+    current = request.app.state.practice_controller.current_team_preview(battle_id)
+    return {"preview": current.to_dict() if current is not None else None}
+
+
+@router.post("/battles/{battle_id}/team-preview", response_model=PracticeActionResponse)
+async def submit_practice_team_preview(
+    battle_id: str,
+    body: PracticeTeamPreviewSubmit,
+    request: Request,
+    user: User = Depends(require_current_user),
+) -> PracticeActionResponse:
+    _require_owner(request, battle_id, user.id)
+    accepted = await request.app.state.practice_controller.submit_team_preview(
+        battle_id, body.request_id, body.option_ids
+    )
+    if not accepted:
+        raise HTTPException(status_code=409, detail="No matching pending team preview")
+    return PracticeActionResponse(accepted=True)
 
 
 @router.get("/battles/{battle_id}/action")

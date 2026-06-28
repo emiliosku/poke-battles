@@ -272,6 +272,9 @@ class BattleService:
         async def _human_chooser(_player: AgentPlayer, battle: Any) -> Any:
             return await action_controller.request_choice(app_battle_id, battle)
 
+        def _human_teampreview(battle: Any) -> Any:
+            return action_controller.request_team_preview(app_battle_id, battle)
+
         human = AgentPlayer(
             account_configuration=AccountConfiguration(player_username, None),
             server_configuration=server,
@@ -282,6 +285,7 @@ class BattleService:
             on_event=_broadcast_event,
             on_raw_line=_broadcast_raw,
         )
+        human.teampreview = _human_teampreview  # type: ignore[method-assign]
         ai = AgentPlayer(
             account_configuration=AccountConfiguration(ai_username, None),
             server_configuration=server,
