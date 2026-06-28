@@ -7,6 +7,7 @@ import {
   TEAMS,
   TEAM_PASTE,
   TEAM_PREVIEW,
+  SPRITE_STATUS,
   LEADERBOARD,
   HEALTH,
   BATTLE_DOUBLES_FINISHED,
@@ -55,6 +56,8 @@ async function mockApi(page: Page, opts: { signedIn: boolean }) {
     if (path === "/api/health") return json(200, HEALTH);
     if (path === "/api/formats") return json(200, FORMATS);
     if (path === "/api/models") return json(200, MODELS);
+    if (path === "/api/pokedex") return json(200, { count: 0, pokemon: [] });
+    if (path === "/api/sprites/status") return json(200, SPRITE_STATUS);
     if (path.startsWith("/api/leaderboard")) return json(200, LEADERBOARD);
 
     // Teams
@@ -196,6 +199,38 @@ test.describe("poke-battles UI: every screen", () => {
     await page.goto("/");
     await page.waitForLoadState("networkidle");
     await shot(page, "10-dashboard-signed-in");
+  });
+
+  test("debug /sprites page is reachable when debug build is enabled", async ({ page }) => {
+    // The CI web build sets VITE_ENABLE_DEBUG=true, so the /debug/sprites
+    // route is baked into the bundle. This test guards against future
+    // regressions that would silently ship a production build without
+    // the dev tools.
+    await mockApi(page, { signedIn: true });
+    // Land on the dashboard first so the topbar is rendered before we
+    // navigate into the debug page. (Without this the /debug/sprites
+    // route mounts before useAuth resolves and the topbar is briefly
+    // empty, so the link can't be asserted immediately.)
+    await page.goto("/");
+    await expect(page.getByRole("link", { name: "Debug" })).toBeVisible();
+    await page.getByRole("link", { name: "Debug" }).click();
+    await page.waitForURL(/\/debug\/sprites$/);
+    // Page must render the species rows for the mocked status payload.
+    // The status fetch is async, so wait for the response to land
+    // before asserting on the row markup.
+    await page.waitForResponse(
+      (r) => r.url().endsWith("/api/sprites/status") && r.status() === 200,
+    );
+    await expect(page.getByRole("heading", { name: "Sprite coverage" })).toBeVisible();
+    // Each species row is an <article> with the name in a <strong>.
+    // Assert each one renders so a missing row (e.g. a pokeapi bug)
+    // is caught even if the heading is fine.
+    const expectedSpecies = ["Hatterene", "Slowking-Galar", "Aerodactyl-Mega", "Maushold-Three"];
+    for (const name of expectedSpecies) {
+      const row = page.locator("article", { has: page.locator("strong", { hasText: name }) });
+      await expect(row).toHaveCount(1);
+    }
+    await shot(page, "11-debug-sprites");
   });
 
   test("signed-in teams", async ({ page }) => {

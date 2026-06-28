@@ -100,6 +100,17 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Test web UI helpers
         working-directory: web
+        env:
+          # Bake the dev-only /debug/sprites page into the test build
+          # so e2e tests can verify it. The Docker production build
+          # already sets this in the web job below.
+          VITE_ENABLE_DEBUG: "true"
+          # Build the test bundle without a base path so the existing
+          # e2e tests can keep navigating to "/" and "/teams" directly
+          # (Vite preview then serves them at the same URLs). The
+          # Docker production build keeps VITE_BASE_PATH=/poke-battles/
+          # so the deployed site is served from its subpath.
+          VITE_BASE_PATH: "/"
         run: |
           npm ci
           npm run test:unit

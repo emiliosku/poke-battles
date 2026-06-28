@@ -102,6 +102,54 @@ export const LEADERBOARD = [
   { subject: "claude-3-5-sonnet", format: "gen9ou", rating: 1784, rd: 36, games: 162 },
 ];
 
+// Fixture for GET /api/sprites/status. Includes a mix of species the
+// page must surface: vanilla (hatterene), a Mega (aerodactyl-mega),
+// a regional (slowking-galar), and a freshly-released form whose
+// sprite has not yet been uploaded to the CDN (maushold-three).
+export const SPRITE_STATUS = {
+  checked_at: 1735689600,
+  duration_s: 1.42,
+  count: 4,
+  results: [
+    {
+      species_id: "hatterene",
+      name: "Hatterene",
+      types: ["Psychic", "Fairy"],
+      canonical_slug: "hatterene",
+      derived_slug: "hatterene",
+      canonical_hit: "gen5ani hatterene.gif",
+      derived_hit: null,
+    },
+    {
+      species_id: "slowkinggalar",
+      name: "Slowking-Galar",
+      types: ["Poison", "Psychic"],
+      canonical_slug: "slowkinggalar",
+      derived_slug: "slowking-galar",
+      canonical_hit: null,
+      derived_hit: "gen5ani slowking-galar.gif",
+    },
+    {
+      species_id: "aerodactylmega",
+      name: "Aerodactyl-Mega",
+      types: ["Rock", "Flying"],
+      canonical_slug: "aerodactylmega",
+      derived_slug: "aerodactyl-mega",
+      canonical_hit: null,
+      derived_hit: "ani aerodactyl-mega.gif",
+    },
+    {
+      species_id: "mausholdthree",
+      name: "Maushold-Three",
+      types: ["Normal"],
+      canonical_slug: "mausholdthree",
+      derived_slug: "maushold-three",
+      canonical_hit: null,
+      derived_hit: null,
+    },
+  ],
+};
+
 export const HEALTH = { status: "ok", version: "0.1.0", uptime_s: 18234 };
 
 // A finished doubles battle with a mix of species — some have gen5ani sprites
