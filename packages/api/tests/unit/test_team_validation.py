@@ -3,28 +3,41 @@
 The Showdown-side ``/utm`` + ``/vtm`` protocol is mocked: the WebSocket pool
 and the network round-trip are stubbed so the tests are hermetic and fast.
 What we *do* exercise is the popup-parser (``_collect_vtm``), the public
-``validate()`` entry point, the empty-format early return, and the
-exception-to-"validator unavailable" fallback.
+``validate()`` entry point, the empty-format early return, the
+exception-to-"validator unavailable" fallback, the pool lifecycle, the
+``_pack`` / ``_drain`` helpers, and the URL-parsing utilities.
 """
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from typing import Any
 
 import pytest
 
+from pokeapi.services import team_validation as tv
 from pokeapi.services.team_validation import (
     ShowdownTeamValidator,
     TeamValidationResult,
+    _anon_name,
+    _host_port_from_websocket_url,
+    build_default_validator,
+    env_showdown_dir,
+    env_showdown_port,
 )
 
 
 class _FakeWebSocket:
-    """Minimal stand-in for the websockets.ClientConnection used in tests."""
+    """Minimal stand-in for the websockets.ClientConnection used in tests.
 
-    def __init__(self, replies: list[str]) -> None:
-        self._replies = list(replies)
+    ``recv()`` blocks (sleeps forever) once the canned reply list is
+    exhausted, so callers that wrap it in ``asyncio.wait_for`` see a
+    clean timeout instead of a ``RuntimeError`` from the fake.
+    """
+
+    def __init__(self, replies: list[str] | None = None) -> None:
+        self._replies: list[str] = list(replies or [])
         self.sent: list[str] = []
         self.closed = False
 
@@ -32,17 +45,19 @@ class _FakeWebSocket:
         self.sent.append(data)
 
     async def recv(self) -> str:
-        if not self._replies:
-            raise RuntimeError("no more replies")
-        return self._replies.pop(0)
+        if self._replies:
+            return self._replies.pop(0)
+        # Block forever; the caller is expected to time out.
+        await asyncio.sleep(3600)
+        raise RuntimeError("fake websocket exhausted")  # pragma: no cover
 
     async def close(self) -> None:
         self.closed = True
 
 
 class _StubSession:
-    def __init__(self) -> None:
-        self.ws = _FakeWebSocket([])
+    def __init__(self, replies: list[str] | None = None) -> None:
+        self.ws = _FakeWebSocket(replies)
 
 
 def _validator() -> ShowdownTeamValidator:
@@ -61,6 +76,63 @@ class TestToDetail:
     def test_rejection_without_reason(self) -> None:
         result = TeamValidationResult(ok=False, reason="")
         assert result.to_detail("Team 1") == "Team 1 rejected by Showdown (no reason given)"
+
+
+class TestUtilities:
+    def test_anon_name_format(self) -> None:
+        name = _anon_name()
+        assert name.startswith("validator")
+        assert len(name) == len("validator") + 6
+
+    def test_anon_name_uniqueness(self) -> None:
+        names = {_anon_name() for _ in range(50)}
+        assert len(names) > 40  # collisions are astronomically unlikely with 36^6
+
+    def test_host_port_from_websocket_url(self) -> None:
+        host, port = _host_port_from_websocket_url("ws://example.test:8000/x")
+        assert host == "example.test"
+        assert port == 8000
+
+    def test_host_port_default_port(self) -> None:
+        host, port = _host_port_from_websocket_url("ws://h/")
+        assert host == "h"
+        assert port == 8000
+
+    def test_host_port_no_hostname_falls_back(self) -> None:
+        host, port = _host_port_from_websocket_url("ws:///path")
+        assert host == "127.0.0.1"
+        assert port == 8000
+
+    def test_env_showdown_dir_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("SHOWDOWN_SERVER_DIR", raising=False)
+        assert env_showdown_dir() == "server"
+
+    def test_env_showdown_dir_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("SHOWDOWN_SERVER_DIR", "/tmp/showdown")  # noqa: S108
+        assert env_showdown_dir() == "/tmp/showdown"  # noqa: S108
+
+    def test_env_showdown_port_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("SHOWDOWN_PORT", raising=False)
+        assert env_showdown_port() == 0
+
+    def test_env_showdown_port_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("SHOWDOWN_PORT", "8123")
+        assert env_showdown_port() == 8123
+
+    def test_build_default_validator_ok(self) -> None:
+        class _Cfg:
+            websocket_url = "ws://localhost:8000/showdown/websocket"
+
+        v = build_default_validator(_Cfg())
+        assert isinstance(v, ShowdownTeamValidator)
+        assert v._websocket_url == "ws://localhost:8000/showdown/websocket"
+
+    def test_build_default_validator_missing_url(self) -> None:
+        class _Cfg:
+            websocket_url = ""
+
+        with pytest.raises(RuntimeError):
+            build_default_validator(_Cfg())
 
 
 class TestValidatePublicSurface:
@@ -149,13 +221,333 @@ class TestCollectVtm:
 
     @pytest.mark.asyncio
     async def test_timeout_yields_timed_out(self) -> None:
-        import asyncio as _asyncio
-
         class _HangingWebSocket:
             async def recv(self) -> str:
-                await _asyncio.sleep(10)
+                await asyncio.sleep(10)
                 raise RuntimeError  # pragma: no cover -- never reached
 
         result = await _validator()._collect_vtm(_HangingWebSocket(), timeout=0.05)  # type: ignore[arg-type]
         assert result.ok is False
         assert "timed out" in result.reason
+
+    @pytest.mark.asyncio
+    async def test_unparseable_popup_yields_truncated_body(self) -> None:
+        ws = _FakeWebSocket(["|popup|??? what is this"])
+        result = await _validator()._collect_vtm(ws, timeout=2.0)
+        assert result.ok is False
+        assert "what is this" in result.reason
+
+    @pytest.mark.asyncio
+    async def test_require_in_popup_is_treated_as_rejection(self) -> None:
+        ws = _FakeWebSocket(["|popup|Your team requires at least one Pokémon."])
+        result = await _validator()._collect_vtm(ws, timeout=2.0)
+        assert result.ok is False
+        assert "requires" in result.reason.lower()
+
+
+class TestPackAndDrain:
+    def test_pack_returns_packed_string(self) -> None:
+        # ConstantTeambuilder is the real thing — we just want to know
+        # _pack returns its output and handles errors.
+        packed = ShowdownTeamValidator._pack(
+            "Garchomp @ Choice Scarf\nAbility: Rough Skin\n"
+            "EVs: 252 Atk / 4 SpD / 252 Spe\nJolly Nature\n"
+            "- Earthquake\n- Outrage\n- Stone Edge\n- Stealth Rock\n"
+        )
+        # The exact packed format isn't important here — only that
+        # _pack doesn't blow up on a valid paste and returns a string.
+        assert packed is not None
+        assert isinstance(packed, str)
+        assert len(packed) > 0
+
+    def test_pack_returns_none_when_constant_teambuilder_missing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def boom(_paste: str) -> None:
+            raise RuntimeError("teambuilder not importable")
+
+        # Force the import inside _pack to fail.
+        import builtins
+
+        real_import = builtins.__import__
+
+        def fake_import(name: str, *args: Any, **kwargs: Any) -> Any:
+            if name == "poke_env.teambuilder.constant_teambuilder":
+                raise ImportError("nope")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+        assert ShowdownTeamValidator._pack("any paste") is None
+
+    @pytest.mark.asyncio
+    async def test_drain_reads_until_quiet(self) -> None:
+        ws = _FakeWebSocket(["|a|", "|b|", "|c|"])
+        await _validator()._drain(ws, timeout=0.1, max_messages=12)
+        # All three should be drained; sent list is empty since drain only reads.
+        assert ws.sent == []
+        assert len(ws._replies) == 0  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_drain_stops_at_max_messages(self) -> None:
+        ws = _FakeWebSocket([f"|msg{i}|" for i in range(50)])
+        await _validator()._drain(ws, timeout=0.1, max_messages=5)
+        # Only 5 should be consumed; the rest remain.
+        assert len(ws._replies) == 45  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_drain_handles_timeout(self) -> None:
+        class _HangingWebSocket:
+            async def recv(self) -> str:
+                await asyncio.sleep(10)
+                raise RuntimeError  # pragma: no cover
+
+        await _validator()._drain(_HangingWebSocket(), timeout=0.05, max_messages=100)  # type: ignore[arg-type]
+
+
+class TestRun:
+    @staticmethod
+    def _drain_then_popup_replies(popup: str) -> list[str]:
+        """Replies that keep ``_drain`` busy without consuming the popup.
+
+        ``_drain`` reads up to 12 messages; we feed it 12 non-popup lines so
+        the next ``recv`` blocks (and the surrounding ``wait_for`` times out),
+        and only after that does ``_collect_vtm`` see the popup.
+        """
+        return ["|updates|" for _ in range(12)] + [popup]
+
+    @pytest.mark.asyncio
+    async def test_run_sends_utm_and_vtm(self) -> None:
+        replies = self._drain_then_popup_replies("|popup|Your team is valid for OU.")
+        session = _StubSession(replies)
+        result = await _validator()._run(
+            session,  # type: ignore[arg-type]
+            "Garchomp @ Choice Scarf\nAbility: Rough Skin\nEVs: 252 Atk\nJolly Nature\n- Earthquake\n",
+            "gen9ou",
+        )
+        assert result.ok is True
+        # First message is /utm, then /vtm is sent after the drain.
+        sent = session.ws.sent
+        assert any(line.startswith("|/utm ") for line in sent)
+        assert any(line == "|/vtm gen9ou" for line in sent)
+
+    @pytest.mark.asyncio
+    async def test_run_with_null_team_sends_utm_null(self) -> None:
+        replies = self._drain_then_popup_replies("|popup|Your team is valid for OU.")
+        session = _StubSession(replies)
+        result = await _validator()._run(session, None, "gen9randombattle")  # type: ignore[arg-type]
+        assert result.ok is True
+        assert "|/utm null" in session.ws.sent
+
+    @pytest.mark.asyncio
+    async def test_run_returns_pack_failure(self) -> None:
+        # Force the import inside _pack to fail so packed is None and
+        # _run returns the "could not convert" error without ever
+        # touching the websocket.
+        import builtins
+
+        real_import = builtins.__import__
+
+        def fake_import(name: str, *args: Any, **kwargs: Any) -> Any:
+            if name == "poke_env.teambuilder.constant_teambuilder":
+                raise ImportError("forced")
+            return real_import(name, *args, **kwargs)
+
+        import pytest as _pytest
+
+        # We can't use monkeypatch here because the test isn't taking
+        # it as a fixture, so use a temporary setattr + restore.
+        original = builtins.__import__
+        builtins.__import__ = fake_import
+        try:
+            session = _StubSession([])
+            result = await _validator()._run(  # type: ignore[arg-type]
+                session, "anything", "gen9ou"
+            )
+            assert result.ok is False
+            assert "could not convert" in result.reason
+        finally:
+            builtins.__import__ = original
+        _ = _pytest  # silence linter
+
+    @pytest.mark.asyncio
+    async def test_run_with_empty_paste_sends_utm_null(self) -> None:
+        replies = self._drain_then_popup_replies("|popup|Your team is valid for OU.")
+        session = _StubSession(replies)
+        result = await _validator()._run(session, "   \n  \n", "gen9randombattle")  # type: ignore[arg-type]
+        assert result.ok is True
+        assert "|/utm null" in session.ws.sent
+
+
+class TestPoolLifecycle:
+    """The pool is exercised via a monkey-patched ``websockets.connect``."""
+
+    @pytest.mark.asyncio
+    async def test_start_opens_pool_size_sessions(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        opens: list[str] = []
+
+        async def fake_connect(url: str, **kwargs: Any) -> _FakeWebSocket:
+            opens.append(url)
+            return _FakeWebSocket(["|updates|"])
+
+        monkeypatch.setattr(tv.websockets, "connect", fake_connect)
+        v = ShowdownTeamValidator(websocket_url="ws://h:1/x", pool_size=3)
+        await v.start()
+        try:
+            assert len(opens) == 3
+        finally:
+            await v.stop()
+
+    @pytest.mark.asyncio
+    async def test_start_is_idempotent(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        opens: list[str] = []
+
+        async def fake_connect(url: str, **kwargs: Any) -> _FakeWebSocket:
+            opens.append(url)
+            return _FakeWebSocket(["|updates|"])
+
+        monkeypatch.setattr(tv.websockets, "connect", fake_connect)
+        v = ShowdownTeamValidator(websocket_url="ws://h:1/x", pool_size=2)
+        await v.start()
+        await v.start()
+        assert len(opens) == 2
+        await v.stop()
+
+    @pytest.mark.asyncio
+    async def test_stop_closes_sessions(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        sockets: list[_FakeWebSocket] = []
+
+        async def fake_connect(url: str, **kwargs: Any) -> _FakeWebSocket:
+            ws = _FakeWebSocket(["|updates|"])
+            sockets.append(ws)
+            return ws
+
+        monkeypatch.setattr(tv.websockets, "connect", fake_connect)
+        v = ShowdownTeamValidator(websocket_url="ws://h:1/x", pool_size=2)
+        await v.start()
+        await v.stop()
+        assert all(s.closed for s in sockets)
+
+    @pytest.mark.asyncio
+    async def test_stop_without_start_is_safe(self) -> None:
+        v = _validator()
+        await v.stop()  # should not raise
+
+    @pytest.mark.asyncio
+    async def test_open_session_sends_trn_and_receives(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        async def fake_connect(url: str, **kwargs: Any) -> _FakeWebSocket:
+            return _FakeWebSocket(["|updates|", "|c|server|hi"])
+
+        monkeypatch.setattr(tv.websockets, "connect", fake_connect)
+        v = _validator()
+        session = await v._open_session()
+        # The /trn message should have been sent.
+        assert session.ws.sent[0].startswith("|/trn validator")
+        assert session.in_use is False
+
+    @pytest.mark.asyncio
+    async def test_open_session_timeout_closes_ws(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        class _HangingWebSocket:
+            def __init__(self) -> None:
+                self.sent: list[str] = []
+                self.closed = False
+
+            async def send(self, data: str) -> None:
+                self.sent.append(data)
+
+            async def recv(self) -> str:
+                await asyncio.sleep(10)
+                raise RuntimeError  # pragma: no cover
+
+            async def close(self) -> None:
+                self.closed = True
+
+        async def fake_connect(url: str, **kwargs: Any) -> _FakeWebSocket:
+            return _HangingWebSocket()  # type: ignore[return-value]
+
+        monkeypatch.setattr(tv.websockets, "connect", fake_connect)
+        v = ShowdownTeamValidator(websocket_url="ws://h:1/x", open_timeout=0.05)
+        with pytest.raises(asyncio.TimeoutError):
+            await v._open_session()
+
+
+class TestAcquire:
+    @pytest.mark.asyncio
+    async def test_acquire_yields_session_from_queue(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        async def fake_connect(url: str, **kwargs: Any) -> _FakeWebSocket:
+            return _FakeWebSocket(["|updates|"])
+
+        monkeypatch.setattr(tv.websockets, "connect", fake_connect)
+        v = ShowdownTeamValidator(websocket_url="ws://h:1/x", pool_size=1)
+        await v.start()
+        try:
+            async with v._acquire() as session:
+                assert session.in_use is True
+            # After exit, session is back in the pool.
+            assert v._sessions is not None
+            assert v._sessions.qsize() == 1
+        finally:
+            await v.stop()
+
+    @pytest.mark.asyncio
+    async def test_acquire_grows_pool_when_exhausted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        opens: list[str] = []
+
+        async def fake_connect(url: str, **kwargs: Any) -> _FakeWebSocket:
+            opens.append(url)
+            return _FakeWebSocket(["|updates|"])
+
+        monkeypatch.setattr(tv.websockets, "connect", fake_connect)
+        # pool_size=1 so the second concurrent acquire must grow the pool.
+        v = ShowdownTeamValidator(websocket_url="ws://h:1/x", pool_size=1, open_timeout=5.0)
+        await v.start()
+        try:
+            async with v._acquire() as s1, v._acquire() as s2:
+                assert s1 is not s2
+            assert len(opens) == 2
+        finally:
+            await v.stop()
+
+    @pytest.mark.asyncio
+    async def test_acquire_returns_session_after_exception(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        async def fake_connect(url: str, **kwargs: Any) -> _FakeWebSocket:
+            return _FakeWebSocket(["|updates|"])
+
+        monkeypatch.setattr(tv.websockets, "connect", fake_connect)
+        v = ShowdownTeamValidator(websocket_url="ws://h:1/x", pool_size=1)
+        await v.start()
+        try:
+            with pytest.raises(RuntimeError):
+                async with v._acquire():
+                    raise RuntimeError("boom")
+            # The session must be back in the pool.
+            assert v._sessions is not None
+            assert v._sessions.qsize() == 1
+        finally:
+            await v.stop()
+
+    @pytest.mark.asyncio
+    async def test_acquire_closes_session_when_validator_closing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        sockets: list[_FakeWebSocket] = []
+
+        async def fake_connect(url: str, **kwargs: Any) -> _FakeWebSocket:
+            ws = _FakeWebSocket(["|updates|"])
+            sockets.append(ws)
+            return ws
+
+        monkeypatch.setattr(tv.websockets, "connect", fake_connect)
+        v = ShowdownTeamValidator(websocket_url="ws://h:1/x", pool_size=1)
+        await v.start()
+        async with v._acquire() as session:
+            pass
+        v._closing = True
+        async with v._acquire() as session:
+            assert session.ws.closed is False  # closed only on context exit
+        assert session.ws.closed is True
+        v._closing = False
+        await v.stop()
