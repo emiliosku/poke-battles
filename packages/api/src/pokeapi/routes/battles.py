@@ -14,6 +14,7 @@ from pokeapi.db import session_scope
 from pokeapi.db.models import Battle, Rating, Replay, Team, User
 from pokeapi.orchestrator import BattleJob, JobResult
 from pokeapi.schemas import BattleCreate, BattleResponse
+from pokeapi.state import get_team_validator
 from pokecore.elo import GlickoRating, rate_pair
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,13 @@ async def create_battle(
             if team is None or team.owner_id != user.id:
                 raise HTTPException(status_code=404, detail="Team 2 not found")
             team2_paste = team.paste
+    validator = get_team_validator(request)
+    check1 = await validator.validate(team1_paste, body.format)
+    if not check1.ok:
+        raise HTTPException(status_code=400, detail=check1.to_detail("Team 1"))
+    check2 = await validator.validate(team2_paste, body.format)
+    if not check2.ok:
+        raise HTTPException(status_code=400, detail=check2.to_detail("Team 2"))
     job = BattleJob(
         format=body.format,
         player1=body.player1.username,

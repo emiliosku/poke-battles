@@ -14,6 +14,7 @@ from pokeapi.auth import require_current_user
 from pokeapi.db import session_scope
 from pokeapi.db.models import Simulation, Team, User
 from pokeapi.schemas import SimulationCreate, SimulationResponse
+from pokeapi.state import get_team_validator
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,13 @@ async def create_simulation(
             status="queued",
         )
         session.add(sim)
+    validator = get_team_validator(request)
+    check_a = await validator.validate(team_a_paste, body.format)
+    if not check_a.ok:
+        raise HTTPException(status_code=400, detail=check_a.to_detail("Team A"))
+    check_b = await validator.validate(team_b_paste, body.format)
+    if not check_b.ok:
+        raise HTTPException(status_code=400, detail=check_b.to_detail("Team B"))
 
     async def _run() -> None:
         try:

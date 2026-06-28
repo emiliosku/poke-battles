@@ -29,6 +29,7 @@ from pokeapi.routes.ws import manager as ws_manager
 from pokeapi.schemas import HealthResponse
 from pokeapi.services import BattleService
 from pokeapi.services.practice import PracticeActionController
+from pokeapi.services.team_validation import ShowdownTeamValidator
 from pokeapi.settings import get_settings
 from pokellm.config import find_models_yaml, load_models_yaml
 
@@ -64,10 +65,15 @@ async def lifespan(app: FastAPI) -> Any:
     app.state.practice_controller = PracticeActionController(broadcaster=ws_manager)
     app.state.models = models
     app.state.start_time = time.monotonic()
+    team_validator_state: ShowdownTeamValidator | None = None
+    app.state.team_validator = team_validator_state
     logger.info("pokeapi ready on %s", settings.database_url)
     try:
         yield
     finally:
+        validator = app.state.team_validator
+        if validator is not None:
+            await validator.stop()
         await orchestrator.stop()
         bservice.stop()
         engine.dispose()

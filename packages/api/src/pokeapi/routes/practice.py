@@ -19,6 +19,7 @@ from pokeapi.schemas import (
     PracticeActionSubmit,
     PracticeBattleCreate,
 )
+from pokeapi.state import get_team_validator
 from pokecore.formats import Format, get_format
 
 logger = logging.getLogger(__name__)
@@ -63,6 +64,13 @@ async def create_practice_battle(
             team2_id=body.ai_team_id,
         )
         session.add(battle)
+    validator = get_team_validator(request)
+    player_check = await validator.validate(player_team_paste, body.format)
+    if not player_check.ok:
+        raise HTTPException(status_code=400, detail=player_check.to_detail("Your team"))
+    ai_check = await validator.validate(ai_team_paste, body.format)
+    if not ai_check.ok:
+        raise HTTPException(status_code=400, detail=ai_check.to_detail("AI team"))
 
     async def _run() -> None:
         try:
