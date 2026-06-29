@@ -176,12 +176,12 @@ jobs:
           file: showdown/Dockerfile
           # The Showdown server transpiles the full smogon codebase at
           # build time (``node build``), which SIGILLs under QEMU's arm64
-          # emulation about 1 in 2 CI runs. It's also the only image that
-          # isn't directly consumed by our arm64 service mesh (it
-          # bridges the LLM agents), so building for amd64 here is the
-          # pragmatic choice. The companion ``showdown-client`` still
-          # ships arm64.
-          platforms: linux/amd64
+          # emulation about 1 in 2 CI runs. The Dockerfile works around
+          # this by forcing the builder stage to amd64 (native on the
+          # CI runner) and building the runtime image for arm64 — the
+          # OCI ARM host has no QEMU binfmt_misc registered, so an
+          # amd64 image can't run there at all.
+          platforms: linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ env.REGISTRY }}/${{ github.repository_owner }}/poke-battles-showdown:latest
       - name: Export digest
