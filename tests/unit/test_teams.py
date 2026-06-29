@@ -517,6 +517,127 @@ class TestNormalizeTeamPasteForShowdown:
         assert lines[6] == "Ability: Regenerator"
         assert lines[7] == "- Psychic"
 
+    def test_blank_line_within_block_does_not_split_mon(self) -> None:
+        """Regression: a stray blank line between two non-move lines of a
+        Pokémon block (e.g. between EVs and Nature) must NOT be treated
+        as a block separator. Otherwise the next non-blank line gets
+        wrapped as a new header, which poke-env tries to parse as a
+        species name and produces a malformed packed team that Showdown
+        silently rejects — breaking every battle that uses a non-random
+        team with such a paste."""
+        paste = (
+            "Garchomp @ Choice Scarf\n"
+            "Ability: Rough Skin\n"
+            "EVs: 252 Atk / 4 SpD / 252 Spe\n"
+            "\n"
+            "Jolly Nature\n"
+            "- Earthquake\n"
+            "- Outrage\n"
+        )
+        result = normalize_team_paste_for_showdown(paste)
+        assert result is not None
+        assert "Jolly Nature (Jolly Nature)" not in result
+        assert "EVs: 252 Atk / 4 SpD / 252 Spe (EVs:" not in result
+        assert "Jolly Nature\n" in result
+        assert "EVs: 252 Atk / 4 SpD / 252 Spe\n" in result
+        # End-to-end: the packed team must still pack to a single mon.
+        pytest.importorskip("poke_env")
+        from poke_env.teambuilder.constant_teambuilder import ConstantTeambuilder
+
+        packed = ConstantTeambuilder(result).packed_team
+        mons = ConstantTeambuilder(result)._mons
+        assert len(mons) == 1
+        assert mons[0].species == "Garchomp"
+        assert mons[0].nature == "Jolly"
+        assert "Garchomp" in packed
+        assert "Jolly" in packed
+
+    def test_blank_line_before_first_move_does_not_split_mon(self) -> None:
+        """A blank line between Ability and the first move line is also
+        common in Showdown exports and must not be treated as a
+        separator."""
+        paste = (
+            "Pikachu @ Light Ball\n"
+            "Ability: Static\n"
+            "\n"
+            "EVs: 252 SpA / 252 Spe\n"
+            "Timid Nature\n"
+            "- Thunderbolt\n"
+        )
+        result = normalize_team_paste_for_showdown(paste)
+        assert result is not None
+        assert "Timid Nature (Timid Nature)" not in result
+        assert "EVs: 252 SpA / 252 Spe (EVs:" not in result
+        assert "Ability: Static" in result
+        assert "EVs: 252 SpA / 252 Spe" in result
+
+    def test_multi_blank_lines_within_block_preserved(self) -> None:
+        """Multiple consecutive blank lines within a block must not
+        cause any wrapping after the first one (they're all stray
+        whitespace until a real move line appears)."""
+        paste = (
+            "Pikachu @ Light Ball\n"
+            "Ability: Static\n"
+            "\n"
+            "\n"
+            "\n"
+            "Timid Nature\n"
+            "- Thunderbolt\n"
+        )
+        result = normalize_team_paste_for_showdown(paste)
+        assert result is not None
+        assert "Timid Nature (Timid Nature)" not in result
+        assert "Timid Nature\n" in result
+
+    def test_blank_line_between_blocks_still_splits(self) -> None:
+        """Blank lines between blocks (i.e. after a move line) must
+        still be treated as block separators so the next mon's header
+        gets wrapped."""
+        paste = (
+            "Pikachu @ Light Ball\n"
+            "Ability: Static\n"
+            "- Thunderbolt\n"
+            "\n"
+            "Charizard @ Choice Specs\n"
+            "Ability: Blaze\n"
+            "- Flamethrower\n"
+        )
+        result = normalize_team_paste_for_showdown(paste)
+        assert result is not None
+        lines = result.split("\n")
+        assert lines[0] == "Pikachu (Pikachu) @ Light Ball"
+        assert lines[2] == "- Thunderbolt"
+        assert lines[3] == ""
+        assert lines[4] == "Charizard (Charizard) @ Choice Specs"
+        assert lines[5] == "Ability: Blaze"
+        assert lines[6] == "- Flamethrower"
+
+    def test_poke_env_handles_blank_line_within_block(self) -> None:
+        """End-to-end regression: a real Showdown paste with a blank
+        line inside a block must pack to the same mon list as the
+        clean paste."""
+        pytest.importorskip("poke_env")
+        from poke_env.teambuilder.constant_teambuilder import ConstantTeambuilder
+
+        clean = (
+            "Garchomp @ Choice Scarf\n"
+            "Ability: Rough Skin\n"
+            "EVs: 252 Atk / 4 SpD / 252 Spe\n"
+            "Jolly Nature\n"
+            "- Earthquake\n"
+            "- Outrage\n"
+            "- Stone Edge\n"
+            "- Stealth Rock\n"
+        )
+        with_blank = clean.replace("4 SpD / 252 Spe\n", "4 SpD / 252 Spe\n\n")
+        normalized = normalize_team_paste_for_showdown(with_blank)
+        assert normalized is not None
+        mons = ConstantTeambuilder(normalized)._mons
+        assert len(mons) == 1
+        assert mons[0].species == "Garchomp"
+        assert mons[0].nature == "Jolly"
+        assert mons[0].moves == ["Earthquake", "Outrage", "Stone Edge", "Stealth Rock"]
+
     def test_team_name_and_comments_preserved(self) -> None:
         paste = (
             "=== My Team ===\n"

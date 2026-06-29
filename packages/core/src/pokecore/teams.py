@@ -373,8 +373,13 @@ def normalize_team_paste_for_showdown(paste: str | None) -> str | None:
     etc.). See :func:`_normalize_header_for_showdown` for the full
     rationale.
 
-    Blank lines, ``=== team name ===`` headers, and ``// comment`` lines
-    are preserved as-is. The transform is idempotent.
+    ``=== team name ===`` headers and ``// comment`` lines are preserved
+    as-is. Blank lines at the start of the paste (before any Pokémon)
+    are preserved. Blank lines between mons (i.e. after a ``- Move``
+    line) are preserved. Blank lines *inside* a mon block (i.e. before
+    the first move of the current mon) are dropped, since poke-env's
+    :class:`ConstantTeambuilder` splits on ``\\n\\n`` and would otherwise
+    turn them into phantom mons. The transform is idempotent.
 
     Returns ``None`` unchanged. Returns the input string unchanged when
     it contains no Pokémon headers (e.g. empty string or only blanks).
@@ -384,26 +389,37 @@ def normalize_team_paste_for_showdown(paste: str | None) -> str | None:
         return paste
     out_lines: list[str] = []
     expecting_header = True
+    in_mon = False
+    seen_move = False
     for raw in paste.splitlines():
         line = raw.rstrip()
         stripped = line.strip()
         if not stripped:
-            out_lines.append(line)
-            expecting_header = True
+            if in_mon and seen_move:
+                out_lines.append(line)
+                expecting_header = True
+                in_mon = False
+                seen_move = False
+            elif in_mon:
+                pass
+            else:
+                out_lines.append(line)
             continue
         if stripped.startswith("===") and stripped.endswith("==="):
             out_lines.append(line)
-            expecting_header = True
             continue
         if stripped.startswith("//"):
             out_lines.append(line)
-            expecting_header = True
             continue
         if expecting_header:
             out_lines.append(_normalize_header_for_showdown(line))
             expecting_header = False
-        else:
-            out_lines.append(line)
+            in_mon = True
+            seen_move = False
+            continue
+        if stripped.startswith("- "):
+            seen_move = True
+        out_lines.append(line)
     return "\n".join(out_lines)
 
 
