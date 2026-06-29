@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { api, type BattleResponse, type ReplayResponse } from "../api";
-import { Battlefield, formatEvent, visibleTimelineEvents } from "../battleView";
+import { Battlefield, formatEventsWithContext, visibleTimelineEvents } from "../battleView";
 
 export default function Replays() {
   const location = useLocation();
@@ -40,6 +40,7 @@ export default function Replays() {
   }, []);
 
   const timeline = replay ? visibleTimelineEvents(replay.events) : [];
+  const narration = formatEventsWithContext(timeline);
   const lastEvent = timeline[timeline.length - 1];
 
   return (
@@ -62,7 +63,7 @@ export default function Replays() {
             <span className="eyebrow">Summary</span>
             <h2>{replay.battle_id}</h2>
             <p>{replay.format} · {replay.turns ?? "?"} turns · {replay.duration_s?.toFixed(1) ?? "?"}s</p>
-            {lastEvent && <div className="notice">Final event: {formatEvent(lastEvent)}</div>}
+            {lastEvent && <div className="notice">Final event: {narration[narration.length - 1]}</div>}
             <Battlefield battle={battle} events={timeline} />
           </div>
           <div className="card stack">
@@ -77,7 +78,7 @@ export default function Replays() {
               {view === "timeline" && timeline.length === 0 && <p>No replay events recorded.</p>}
               {view === "timeline" && timeline.map((event, index) => (
                 <div className="event-line" key={`${event.kind}-${index}`}>
-                  <span className="badge">T{event.turn}</span> {formatEvent(event)}
+                  <span className="badge">T{event.turn}</span> {narration[index]}
                 </div>
               ))}
               {view === "raw" && !replay.raw_log && <p>No raw protocol stored for this replay.</p>}

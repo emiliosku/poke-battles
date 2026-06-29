@@ -149,7 +149,11 @@ class AgentPlayer(Player):
                             await self._on_raw_line(bt, line)
                         except Exception:
                             pass
-                    ev = parse_line(line, turn=battle.turn)
+                    try:
+                        ev = parse_line(line, turn=battle.turn)
+                    except Exception:
+                        logger.exception("Failed to parse Showdown protocol line: %s", line)
+                        ev = None
                     if ev is not None:
                         self._events.setdefault(bt, []).append(ev)
                         if self._on_event is not None:

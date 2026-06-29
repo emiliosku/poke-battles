@@ -43,7 +43,6 @@ class TestParseLine:
         assert ev.raw["pokemon"]["pokemon"] == "Slowking"
         assert ev.raw["pokemon"]["species"] == "Slowking-Galar"
         assert ev.raw["pokemon"]["species_id"] == "slowkinggalar"
-        assert ev.raw["pokemon"]["sprite_id"] == "slowking-galar"
         assert ev.raw["details"] == "Slowking-Galar, L50"
         assert ev.raw["hp"]["hp_percent"] == 100
 

@@ -107,6 +107,7 @@ export interface BattleEvent {
     };
     status?: string;
     move?: string;
+    details?: string;
   };
 }
 

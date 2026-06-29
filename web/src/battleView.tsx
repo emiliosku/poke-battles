@@ -90,6 +90,35 @@ function displayPokemonRef(ref?: PokemonRef, fallback?: string): string {
   return name;
 }
 
+function speciesFromDetails(details?: string): string {
+  if (!details || !details.includes(",")) return "";
+  return details.split(",", 1)[0]?.trim() || "";
+}
+
+function speciesIdFromName(species: string): string {
+  return species.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function spriteIdFromName(species: string): string {
+  return species.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+function switchDetails(event: BattleEvent): string {
+  return event.raw?.details || event.detail || event.raw?.hp?.hp_text || "";
+}
+
+function switchPokemonRef(event: BattleEvent): PokemonRef | undefined {
+  const ref = event.raw?.pokemon;
+  const species = ref?.species || speciesFromDetails(switchDetails(event));
+  if (!ref || !species) return ref;
+  return {
+    ...ref,
+    species,
+    species_id: speciesIdFromName(species),
+    sprite_id: ref.sprite_id || spriteIdFromName(species),
+  };
+}
+
 function updateSlotPokemon(slot: SlotState, ref?: PokemonRef, fallback?: string, overwriteSpecies = false) {
   const active = displayPokemonRef(ref, fallback);
   if (overwriteSpecies || !slot.speciesId) {
@@ -110,7 +139,7 @@ function applyEvent(sides: [SideState, SideState], event: BattleEvent): [SideSta
   if (event.kind === "switch") {
     const idx = eventSideIndex(event);
     const slot = eventSlotIndex(event);
-    updateSlotPokemon(next[idx].slots[slot], event.raw?.pokemon, event.side, true);
+    updateSlotPokemon(next[idx].slots[slot], switchPokemonRef(event), event.side, true);
     next[idx].slots[slot].hp = event.raw?.hp?.hp_percent ?? 100;
     next[idx].slots[slot].status = event.raw?.hp?.status || "active";
   }
@@ -196,17 +225,29 @@ export function visibleTimelineEvents(events: BattleEvent[]): BattleEvent[] {
   return deduped;
 }
 
-export function formatEvent(event: BattleEvent): string {
+function eventPokemonLabel(event: BattleEvent, ref: "source" | "target" | "pokemon", sides?: [SideState, SideState]): string {
+  const pokemonRef = ref === "pokemon" && event.kind === "switch" ? switchPokemonRef(event) : event.raw?.[ref];
+  const fallback = ref === "source" ? event.source : ref === "target" ? event.target : event.side;
+  if (sides) {
+    const idx = eventSideIndex(event);
+    const slot = eventSlotIndex(event, ref);
+    const active = sides[idx].slots[slot].active;
+    if (active && !active.startsWith("Awaiting ")) return active;
+  }
+  return displayPokemonRef(pokemonRef, fallback);
+}
+
+export function formatEvent(event: BattleEvent, sides?: [SideState, SideState]): string {
   if (event.kind === "turn_start") return `Turn ${event.turn}`;
-  if (event.kind === "move") return `${event.raw?.source?.pokemon || displayPokemon(event.source)} used ${event.detail}`;
-  if (event.kind === "switch") return `${event.raw?.pokemon?.pokemon || displayPokemon(event.side)} switched in (${event.raw?.hp?.hp_text || event.detail || "ready"})`;
-  if (event.kind === "damage") return `${event.raw?.target?.pokemon || displayPokemon(event.target)} took damage (${event.raw?.hp?.hp_text || event.detail})`;
-  if (event.kind === "heal") return `${event.raw?.target?.pokemon || displayPokemon(event.target)} healed (${event.raw?.hp?.hp_text || event.detail})`;
-  if (event.kind === "faint") return `${event.raw?.target?.pokemon || displayPokemon(event.target)} fainted`;
-  if (event.kind === "status") return `${event.raw?.target?.pokemon || displayPokemon(event.target)} is ${event.detail}`;
-  if (event.kind === "cure_status") return `${event.raw?.target?.pokemon || displayPokemon(event.target)} cured ${event.detail}`;
-  if (event.kind === "boost") return `${displayPokemon(event.target)} boosted ${event.detail}`;
-  if (event.kind === "unboost") return `${displayPokemon(event.target)} lost ${event.detail}`;
+  if (event.kind === "move") return `${eventPokemonLabel(event, "source", sides)} used ${event.detail}`;
+  if (event.kind === "switch") return `${eventPokemonLabel(event, "pokemon", sides)} switched in (${event.raw?.hp?.hp_text || event.detail || "ready"})`;
+  if (event.kind === "damage") return `${eventPokemonLabel(event, "target", sides)} took damage (${event.raw?.hp?.hp_text || event.detail})`;
+  if (event.kind === "heal") return `${eventPokemonLabel(event, "target", sides)} healed (${event.raw?.hp?.hp_text || event.detail})`;
+  if (event.kind === "faint") return `${eventPokemonLabel(event, "target", sides)} fainted`;
+  if (event.kind === "status") return `${eventPokemonLabel(event, "target", sides)} is ${event.detail}`;
+  if (event.kind === "cure_status") return `${eventPokemonLabel(event, "target", sides)} cured ${event.detail}`;
+  if (event.kind === "boost") return `${eventPokemonLabel(event, "target", sides)} boosted ${event.detail}`;
+  if (event.kind === "unboost") return `${eventPokemonLabel(event, "target", sides)} lost ${event.detail}`;
   if (event.kind === "weather_start") return `Weather started: ${event.detail}`;
   if (event.kind === "weather_end") return `Weather ended: ${event.detail}`;
   if (event.kind === "field_start") return `Field effect started: ${event.detail}`;
@@ -215,6 +256,21 @@ export function formatEvent(event: BattleEvent): string {
   if (event.kind === "side_condition_end") return `${event.side || "Side"}: ${event.detail} ended`;
   if (event.kind === "battle_end") return event.detail === "tie" ? "Battle ended in a tie" : `Winner: ${event.detail || "unknown"}`;
   return [event.kind, event.side || event.target || event.source, event.detail].filter(Boolean).join(" · ");
+}
+
+export function formatEventWithContext(events: BattleEvent[], index: number): string {
+  const event = events[index];
+  if (!event) return "";
+  const sides = events.slice(0, index + 1).reduce(applyEvent, initialSides);
+  return formatEvent(event, sides);
+}
+
+export function formatEventsWithContext(events: BattleEvent[]): string[] {
+  let sides = initialSides;
+  return events.map((event) => {
+    sides = applyEvent(sides, event);
+    return formatEvent(event, sides);
+  });
 }
 
 export function Battlefield({ battle, events }: { battle?: BattleResponse | null; events: BattleEvent[] }) {
