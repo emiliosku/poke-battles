@@ -36,6 +36,17 @@ class TestParseLine:
         assert ev.raw["pokemon"]["pokemon"] == "Charizard"
         assert ev.raw["hp"]["hp_percent"] == 100
 
+    def test_switch_uses_details_for_variant_species(self) -> None:
+        ev = parse_line("|switch|p1a: Slowking|Slowking-Galar, L50|100/100")
+        assert ev is not None
+        assert ev.kind == EventKind.SWITCH
+        assert ev.raw["pokemon"]["pokemon"] == "Slowking"
+        assert ev.raw["pokemon"]["species"] == "Slowking-Galar"
+        assert ev.raw["pokemon"]["species_id"] == "slowkinggalar"
+        assert ev.raw["pokemon"]["sprite_id"] == "slowking-galar"
+        assert ev.raw["details"] == "Slowking-Galar, L50"
+        assert ev.raw["hp"]["hp_percent"] == 100
+
     def test_damage(self) -> None:
         ev = parse_line("|-damage|p2a: Venusaur|45/100")
         assert ev is not None

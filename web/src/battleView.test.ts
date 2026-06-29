@@ -59,4 +59,41 @@ describe("battle timeline view helpers", () => {
     expect(playerSide.slots[1].active).toBe("Flutter Mane");
     expect(playerSide.slots[1].hp).toBe(20);
   });
+
+  it("keeps variant sprite ids from switch events after later base-name damage", () => {
+    const events: BattleEvent[] = [
+      {
+        kind: "switch",
+        turn: 1,
+        side: "p1a: Slowking",
+        raw: {
+          pokemon: {
+            side: "p1",
+            slot: "a",
+            pokemon: "Slowking",
+            species: "Slowking-Galar",
+            species_id: "slowkinggalar",
+            sprite_id: "slowking-galar",
+          },
+          hp: { hp_percent: 100 },
+        },
+      },
+      {
+        kind: "damage",
+        turn: 1,
+        target: "p1a: Slowking",
+        raw: {
+          target: { side: "p1", slot: "a", pokemon: "Slowking", species_id: "slowking", sprite_id: "slowking" },
+          hp: { hp_percent: 64 },
+        },
+      },
+    ];
+
+    const [playerSide] = battleSidesFromEvents(events);
+
+    expect(playerSide.slots[0].active).toBe("Slowking-Galar");
+    expect(playerSide.slots[0].speciesId).toBe("slowkinggalar");
+    expect(playerSide.slots[0].spriteId).toBe("slowking-galar");
+    expect(playerSide.slots[0].hp).toBe(64);
+  });
 });

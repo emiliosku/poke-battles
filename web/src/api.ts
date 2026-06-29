@@ -114,7 +114,9 @@ export interface PokemonRef {
   side?: string;
   slot?: string;
   pokemon?: string;
+  species?: string;
   species_id?: string;
+  sprite_id?: string;
 }
 
 export interface FormatOption {

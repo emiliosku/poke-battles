@@ -18,6 +18,7 @@ import re
 from collections.abc import Callable, Iterable
 from typing import Any
 
+from pokecore.teams import sprite_id
 from pokeengine.events import Event, EventKind
 
 _HP_FRACTION = re.compile(r"^(\d+)/(\d+)(?:\s+(\w+))?$")
@@ -67,19 +68,35 @@ def _species_id(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", name.lower())
 
 
-def _pokemon_ref(raw: str) -> dict[str, str]:
+def _species_from_details(details: str | None) -> str | None:
+    if not details:
+        return None
+    species = details.split(",", 1)[0].strip()
+    return species or None
+
+
+def _pokemon_ref(raw: str, details: str | None = None) -> dict[str, str]:
     match = _NICKNAME_POKEMON.match(raw)
     if not match:
         pokemon = raw.strip()
-        return {"pokemon": pokemon, "species_id": _species_id(pokemon)}
+        species = _species_from_details(details) or pokemon
+        return {
+            "pokemon": pokemon,
+            "species": species,
+            "species_id": _species_id(species),
+            "sprite_id": sprite_id(species),
+        }
     side = f"p{match.group(1)}"
     slot = match.group(2) or "a"
     pokemon = match.group(3).strip()
+    species = _species_from_details(details) or pokemon
     return {
         "side": side,
         "slot": slot,
         "pokemon": pokemon,
-        "species_id": _species_id(pokemon),
+        "species": species,
+        "species_id": _species_id(species),
+        "sprite_id": sprite_id(species),
     }
 
 
@@ -126,9 +143,13 @@ def _move(args: list[str], turn: int) -> Event:
 def _switch(args: list[str], turn: int) -> Event:
     if not args:
         return _e(EventKind.MESSAGE, turn, detail="switch")
-    raw: dict[str, Any] = {"pokemon": _pokemon_ref(args[0])}
-    if len(args) > 1:
-        raw["hp"] = _hp(args[1])
+    details = args[1] if len(args) > 2 else None
+    hp_arg = args[2] if len(args) > 2 else args[1] if len(args) > 1 else None
+    raw: dict[str, Any] = {"pokemon": _pokemon_ref(args[0], details)}
+    if details:
+        raw["details"] = details
+    if hp_arg:
+        raw["hp"] = _hp(hp_arg)
     return _e(
         EventKind.SWITCH,
         turn,
@@ -141,11 +162,19 @@ def _switch(args: list[str], turn: int) -> Event:
 def _drag(args: list[str], turn: int) -> Event:
     if not args:
         return _e(EventKind.MESSAGE, turn, detail="drag")
+    details = args[1] if len(args) > 2 else None
+    hp_arg = args[2] if len(args) > 2 else args[1] if len(args) > 1 else None
+    raw: dict[str, Any] = {"pokemon": _pokemon_ref(args[0], details)}
+    if details:
+        raw["details"] = details
+    if hp_arg:
+        raw["hp"] = _hp(hp_arg)
     return _e(
         EventKind.SWITCH,
         turn,
         side=args[0],
         detail=" ".join(args[1:]) if len(args) > 1 else None,
+        raw=raw,
     )
 
 

@@ -1,9 +1,10 @@
-import type { BattleEvent, BattleResponse } from "./api";
+import type { BattleEvent, BattleResponse, PokemonRef } from "./api";
 import { PokemonSprite } from "./sprites";
 
 interface SlotState {
   active: string;
   speciesId: string;
+  spriteId: string;
   hp: number;
   status: string;
   lastMove: string;
@@ -19,15 +20,15 @@ const initialSides: [SideState, SideState] = [
   {
     label: "Player 1",
     slots: [
-      { active: "Awaiting switch", speciesId: "", hp: 100, status: "ready", lastMove: "", slot: "a" },
-      { active: "Awaiting partner", speciesId: "", hp: 100, status: "ready", lastMove: "", slot: "b" },
+      { active: "Awaiting switch", speciesId: "", spriteId: "", hp: 100, status: "ready", lastMove: "", slot: "a" },
+      { active: "Awaiting partner", speciesId: "", spriteId: "", hp: 100, status: "ready", lastMove: "", slot: "b" },
     ],
   },
   {
     label: "Player 2",
     slots: [
-      { active: "Awaiting switch", speciesId: "", hp: 100, status: "ready", lastMove: "", slot: "a" },
-      { active: "Awaiting partner", speciesId: "", hp: 100, status: "ready", lastMove: "", slot: "b" },
+      { active: "Awaiting switch", speciesId: "", spriteId: "", hp: 100, status: "ready", lastMove: "", slot: "a" },
+      { active: "Awaiting partner", speciesId: "", spriteId: "", hp: 100, status: "ready", lastMove: "", slot: "b" },
     ],
   },
 ];
@@ -80,6 +81,27 @@ function displayPokemon(raw?: string): string {
   return cleaned.split(",")[0]?.trim() || cleaned;
 }
 
+function displayPokemonRef(ref?: PokemonRef, fallback?: string): string {
+  const name = ref?.pokemon || displayPokemon(fallback);
+  const species = ref?.species;
+  if (name && species && species !== name && species.toLowerCase().startsWith(`${name.toLowerCase()}-`)) {
+    return species;
+  }
+  return name;
+}
+
+function updateSlotPokemon(slot: SlotState, ref?: PokemonRef, fallback?: string, overwriteSpecies = false) {
+  const active = displayPokemonRef(ref, fallback);
+  if (overwriteSpecies || !slot.speciesId) {
+    slot.active = active || slot.active;
+  }
+  const speciesId = ref?.species_id;
+  if (speciesId && (overwriteSpecies || !slot.speciesId)) {
+    slot.speciesId = speciesId;
+    slot.spriteId = ref?.sprite_id || speciesId;
+  }
+}
+
 function applyEvent(sides: [SideState, SideState], event: BattleEvent): [SideState, SideState] {
   const next: [SideState, SideState] = [
     { ...sides[0], slots: [{ ...sides[0].slots[0] }, { ...sides[0].slots[1] }] },
@@ -88,8 +110,7 @@ function applyEvent(sides: [SideState, SideState], event: BattleEvent): [SideSta
   if (event.kind === "switch") {
     const idx = eventSideIndex(event);
     const slot = eventSlotIndex(event);
-    next[idx].slots[slot].active = event.raw?.pokemon?.pokemon || displayPokemon(event.side);
-    next[idx].slots[slot].speciesId = event.raw?.pokemon?.species_id || next[idx].slots[slot].speciesId;
+    updateSlotPokemon(next[idx].slots[slot], event.raw?.pokemon, event.side, true);
     next[idx].slots[slot].hp = event.raw?.hp?.hp_percent ?? 100;
     next[idx].slots[slot].status = event.raw?.hp?.status || "active";
   }
@@ -101,8 +122,7 @@ function applyEvent(sides: [SideState, SideState], event: BattleEvent): [SideSta
   if (event.kind === "damage" || event.kind === "heal") {
     const idx = eventSideIndex(event);
     const slot = eventSlotIndex(event, "target");
-    next[idx].slots[slot].active = event.raw?.target?.pokemon || displayPokemon(event.target) || next[idx].slots[slot].active;
-    next[idx].slots[slot].speciesId = event.raw?.target?.species_id || next[idx].slots[slot].speciesId;
+    updateSlotPokemon(next[idx].slots[slot], event.raw?.target, event.target);
     const hp = event.raw?.hp?.hp_percent ?? event.quantity;
     if (typeof hp === "number") next[idx].slots[slot].hp = Math.max(0, Math.min(100, hp));
     if (event.raw?.hp?.status) next[idx].slots[slot].status = event.raw.hp.status;
@@ -110,8 +130,7 @@ function applyEvent(sides: [SideState, SideState], event: BattleEvent): [SideSta
   if (event.kind === "faint") {
     const idx = eventSideIndex(event);
     const slot = eventSlotIndex(event, "target");
-    next[idx].slots[slot].active = event.raw?.target?.pokemon || displayPokemon(event.target) || next[idx].slots[slot].active;
-    next[idx].slots[slot].speciesId = event.raw?.target?.species_id || next[idx].slots[slot].speciesId;
+    updateSlotPokemon(next[idx].slots[slot], event.raw?.target, event.target);
     next[idx].slots[slot].hp = 0;
     next[idx].slots[slot].status = "fainted";
   }
@@ -129,7 +148,7 @@ function applyEvent(sides: [SideState, SideState], event: BattleEvent): [SideSta
 // can reuse the exact same behaviour.
 
 function BattleSlotSprite({ slot }: { slot: SlotState }) {
-  return <PokemonSprite primaryId={slot.speciesId} label={slot.active} />;
+  return <PokemonSprite primaryId={slot.spriteId || slot.speciesId} fallbackId={slot.speciesId} label={slot.active} />;
 }
 
 export function battleSidesFromEvents(events: BattleEvent[]): [SideState, SideState] {
