@@ -93,16 +93,12 @@ async def lifespan(app: FastAPI) -> Any:
     app.state.team_validator = team_validator_state
     log_handler = MemoryLogHandler(max_records=200)
     log_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
-    log_handler.install(
-        [
-            logging.getLogger(),
-            logging.getLogger("pokeapi"),
-            logging.getLogger("pokeengine"),
-            logging.getLogger("poke_env"),
-        ]
-    )
+    # Attach only to the root logger; ``pokeapi`` / ``pokeengine`` /
+    # ``poke_env`` loggers propagate to it by default. Installing on
+    # both root and a child double-prints every record.
+    log_handler.install([logging.getLogger()])
     app.state.log_handler = log_handler
-    logger.info("pokeapi ready on %s", settings.database_url)
+    logger.info("pokeapi ready")
     warmup_task = asyncio.create_task(_warm_sprite_status_cache())
     try:
         yield
