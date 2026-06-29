@@ -9,7 +9,12 @@
 # The data is gitignored at the repo root (``packages/engine/server/``)
 # because it's a build artifact, so it has to be generated here rather
 # than copied from the build context.
-FROM node:20-alpine AS showdown-data
+#
+# The transpilation step (``node build``) SIGILLs about 1 in 2 runs
+# under QEMU's arm64 emulation, so we force this stage to run on
+# amd64 (native on the CI runner). The final image is built for
+# arm64 and only consumes the build artifacts from this stage.
+FROM --platform=linux/amd64 node:20-alpine AS showdown-data
 
 ARG SHOWDOWN_REF=master
 
