@@ -575,15 +575,7 @@ class TestNormalizeTeamPasteForShowdown:
         """Multiple consecutive blank lines within a block must not
         cause any wrapping after the first one (they're all stray
         whitespace until a real move line appears)."""
-        paste = (
-            "Pikachu @ Light Ball\n"
-            "Ability: Static\n"
-            "\n"
-            "\n"
-            "\n"
-            "Timid Nature\n"
-            "- Thunderbolt\n"
-        )
+        paste = "Pikachu @ Light Ball\nAbility: Static\n\n\n\nTimid Nature\n- Thunderbolt\n"
         result = normalize_team_paste_for_showdown(paste)
         assert result is not None
         assert "Timid Nature (Timid Nature)" not in result
