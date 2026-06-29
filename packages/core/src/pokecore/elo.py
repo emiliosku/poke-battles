@@ -21,6 +21,15 @@ INITIAL_VOLATILITY: float = 0.06
 TAU: float = 0.5
 CONVERGENCE_TOLERANCE: float = 1e-6
 MAX_ITERATIONS: int = 100
+# Floor for the volatility. Glicko-2's Illinois iteration can drive
+# sigma toward zero in long rating periods; once ``sigma * sigma``
+# underflows to 0.0, ``math.log(sigma * sigma)`` raises
+# ``ValueError: math domain error`` and the rating update fails.
+# Clamping the result to this floor keeps the post-battle callback
+# from crashing the orchestrator on the Nth battle of a long
+# history, and matches the Glicko-2 reference's "sigma is always
+# positive" requirement.
+MIN_VOLATILITY: float = 1e-9
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,7 +74,15 @@ def _e(mu: float, mu_j: float, phi_j: float) -> float:
 
 def _update_volatility(sigma: float, phi: float, v: float, delta: float, tau: float = TAU) -> float:
     """Illinois algorithm for the volatility update equation."""
-    a = math.log(sigma * sigma)
+    # Glicko-2 requires sigma > 0: the algorithm logs sigma^2. When
+    # sigma has drifted into the denormal range (very small but > 0),
+    # ``sigma * sigma`` underflows to 0.0 and ``math.log(0)`` raises
+    # ``ValueError: math domain error``. The dataclass rejects sigma
+    # <= 0 outright, so we only need to guard the underflow case.
+    sigma_sq = sigma * sigma
+    if sigma_sq == 0.0:
+        return sigma
+    a = math.log(sigma_sq)
     phi_sq = phi * phi
     delta_sq = delta * delta
     tau_sq = tau * tau
@@ -101,7 +118,12 @@ def _update_volatility(sigma: float, phi: float, v: float, delta: float, tau: fl
             b_bound = c_bound
             f_b = f_c
         iteration += 1
-    return math.exp((a_bound + b_bound) / 2.0)
+    new_sigma = math.exp((a_bound + b_bound) / 2.0)
+    # ``math.exp`` of a very negative number underflows to 0.0
+    # without raising, which would propagate to the caller and make
+    # the next ``GlickoRating(...)`` construction fail its vol > 0
+    # check. Clamp to the volatility floor.
+    return new_sigma if new_sigma > 0.0 else MIN_VOLATILITY
 
 
 def rate(rating: GlickoRating, matches: Iterable[MatchResult]) -> GlickoRating:
@@ -128,6 +150,7 @@ def rate(rating: GlickoRating, matches: Iterable[MatchResult]) -> GlickoRating:
     v = 1.0 / v_inv
     delta = v * delta_acc
     new_vol = _update_volatility(rating.vol, phi, v, delta)
+    new_vol = max(new_vol, MIN_VOLATILITY)
     phi_star = math.sqrt(phi * phi + new_vol * new_vol)
     new_phi = 1.0 / math.sqrt(1.0 / (phi_star * phi_star) + 1.0 / v)
     new_mu = mu + new_phi * new_phi * delta_acc

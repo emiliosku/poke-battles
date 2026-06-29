@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from pokecore.elo import (
+    MIN_VOLATILITY,
     GlickoRating,
     MatchResult,
     expected_pair,
@@ -71,6 +72,29 @@ class TestRate:
     def test_invalid_score(self) -> None:
         with pytest.raises(ValueError, match="Score must be in"):
             MatchResult(GlickoRating(), 1.5)
+
+    def test_denormal_volatility_does_not_crash(self) -> None:
+        """``_update_volatility`` must not raise ``ValueError: math
+        domain error`` when the input vol is in the denormal range
+        (vol*vol underflows to 0). It should clamp the result to
+        ``MIN_VOLATILITY``."""
+        player = GlickoRating(rating=1500, rd=350, vol=1e-200)
+        opponent = GlickoRating(rating=1500, rd=350, vol=0.06)
+        new_player, _ = rate_pair(player, opponent, 1.0)
+        assert new_player.vol >= MIN_VOLATILITY
+        assert new_player.vol > 0
+        assert new_player.rd > 0
+
+    def test_repeated_updates_recover_from_underflow(self) -> None:
+        """Stress: hundreds of rating updates starting from a tiny
+        vol must not raise and the resulting vol must stay above
+        ``MIN_VOLATILITY``."""
+        player = GlickoRating(rating=1500, rd=200, vol=1e-160)
+        opponent = GlickoRating(rating=1700, rd=200, vol=0.06)
+        for i in range(200):
+            player, _ = rate_pair(player, opponent, 1.0 if i % 2 else 0.0)
+            assert player.vol >= MIN_VOLATILITY
+            assert player.rd > 0
 
 
 class TestRatePair:

@@ -15,7 +15,7 @@ from pokeapi.db.models import Battle, Rating, Replay, Team, User
 from pokeapi.orchestrator import BattleJob, JobResult
 from pokeapi.schemas import BattleCreate, BattleResponse
 from pokeapi.state import get_team_validator
-from pokecore.elo import GlickoRating, rate_pair
+from pokecore.elo import MIN_VOLATILITY, GlickoRating, rate_pair
 
 logger = logging.getLogger(__name__)
 
@@ -158,8 +158,22 @@ def _update_ratings(sess: Any, job: BattleJob, winner: str) -> None:
     r2 = sess.query(Rating).filter_by(subject=job.player2, format=fmt).first()
     if r1 is None or r2 is None:
         return
-    g1 = GlickoRating(rating=r1.rating, rd=r1.rd, vol=r1.vol)
-    g2 = GlickoRating(rating=r2.rating, rd=r2.rd, vol=r2.vol)
+    # Defensive: a Rating row written by a previous (buggy) code
+    # path can have vol == 0.0 if the Glicko-2 Illinois iteration
+    # underflowed ``math.exp`` to 0.0. ``GlickoRating``'s
+    # ``__post_init__`` rejects vol <= 0, which would crash the
+    # on_complete callback and orphan the battle. Clamp to the
+    # algorithm's minimum volatility so the rating can recover.
+    g1 = GlickoRating(
+        rating=r1.rating,
+        rd=r1.rd,
+        vol=max(r1.vol, MIN_VOLATILITY),
+    )
+    g2 = GlickoRating(
+        rating=r2.rating,
+        rd=r2.rd,
+        vol=max(r2.vol, MIN_VOLATILITY),
+    )
     score_a = 1.0 if winner == job.player1 else 0.0
     new_g1, new_g2 = rate_pair(g1, g2, score_a)
     r1.rating = new_g1.rating
