@@ -7,6 +7,7 @@ from fastapi import APIRouter
 from pokeapi.routes import (
     auth,
     battles,
+    debug,
     health,
     leaderboard,
     meta,
@@ -30,5 +31,6 @@ router.include_router(practice.router)
 router.include_router(replays.router)
 router.include_router(sprites.router)
 router.include_router(ws.router)
+router.include_router(debug.router)
 
 __all__ = ["router"]
