@@ -135,7 +135,9 @@ export interface FormatOption {
 // the mon's sprite, type, and remaining HP without guessing from a label.
 export interface PracticeSwitchPokemon {
   name: string;
+  species: string;
   species_id: string;
+  sprite_id?: string;
   types: string[];
   hp_percent: number;
   status: string;

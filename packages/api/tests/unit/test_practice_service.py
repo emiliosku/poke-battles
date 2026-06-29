@@ -13,8 +13,12 @@ from poke_env.player.battle_order import SingleBattleOrder
 from pokeapi.services.practice import (
     PracticeActionController,
     _compact_double_orders,
+    _display_species_and_nickname,
     _order_kind,
     _order_label,
+    _pokemon_payload,
+    _team_member_label,
+    _team_member_payload,
     decide_points,
     score_from_raw_log,
 )
@@ -155,3 +159,154 @@ class TestDoubleOrderCompaction:
         # slot_a dedupes to [move, mon_a]; slot_b is [move, mon_b].
         # Combinations: (move,move), (move,mon_b), (mon_a,move), (mon_a,mon_b) => 4.
         assert len(orders) == 4
+
+
+class TestDisplaySpeciesAndNickname:
+    """Regression tests for the Showdown ident-stripping bug.
+
+    Showdown's server (``sim/pokemon.ts``) rewrites a Pokemon's
+    nickname to the base species when the nickname equals the species
+    (the variant form is conveyed via ``|details|`` instead). That
+    means poke-env's ``Pokemon.name`` returns ``"Slowking"`` for
+    ``Slowking-Galar`` even though ``_last_details`` is
+    ``"Slowking-Galar, L50"``. ``_display_species_and_nickname``
+    prefers the details-based species so the web UI shows the right
+    form.
+    """
+
+    def test_prefers_last_details_for_variant_form(self) -> None:
+        mon = SimpleNamespace(
+            species="slowkinggalar",
+            name="Slowking",
+            _last_details="Slowking-Galar, L50",
+        )
+        species, nickname = _display_species_and_nickname(mon)
+        assert species == "Slowking-Galar"
+        assert nickname == "Slowking"
+
+    def test_falls_back_to_teambuilder_when_no_details(self) -> None:
+        mon = SimpleNamespace(species="slowkinggalar", name="Slowking", _last_details="")
+        species, nickname = _display_species_and_nickname(mon)
+        assert species == "slowkinggalar"
+        assert nickname == "Slowking"
+
+    def test_base_form_uses_species_id(self) -> None:
+        mon = SimpleNamespace(
+            species="hatterene",
+            name="Hatterene",
+            _last_details="Hatterene, L50",
+        )
+        species, _ = _display_species_and_nickname(mon)
+        assert species == "Hatterene"
+
+    def test_mega_form_via_details(self) -> None:
+        mon = SimpleNamespace(
+            species="aerodactylmega",
+            name="Aerodactyl",
+            _last_details="Aerodactyl-Mega, L50",
+        )
+        species, _ = _display_species_and_nickname(mon)
+        assert species == "Aerodactyl-Mega"
+
+    def test_pom_pom_form_via_details(self) -> None:
+        mon = SimpleNamespace(
+            species="oricoriopompom",
+            name="Oricorio",
+            _last_details="Oricorio-Pom-Pom, L50",
+        )
+        species, _ = _display_species_and_nickname(mon)
+        assert species == "Oricorio-Pom-Pom"
+
+    def test_custom_nickname_preserved(self) -> None:
+        mon = SimpleNamespace(
+            species="garchomp",
+            name="Big Blue",
+            _last_details="Garchomp, L50",
+        )
+        species, nickname = _display_species_and_nickname(mon)
+        assert species == "Garchomp"
+        assert nickname == "Big Blue"
+
+
+class TestPokemonPayload:
+    """The in-battle payload must ship the variant form and a
+    dash-form sprite id so the web UI can render it correctly."""
+
+    def test_payload_uses_details_species_for_variant(self) -> None:
+        mon = SimpleNamespace(
+            species="slowkinggalar",
+            name="Slowking",
+            _last_details="Slowking-Galar, L50",
+            types=[],
+            current_hp_fraction=1.0,
+            fainted=False,
+            status=None,
+        )
+        payload = _pokemon_payload(mon)
+        assert payload["species"] == "Slowking-Galar"
+        assert payload["species_id"] == "slowkinggalar"
+        assert payload["sprite_id"] == "slowking-galar"
+        assert payload["name"] == "Slowking"
+
+    def test_payload_sprite_id_for_mega(self) -> None:
+        mon = SimpleNamespace(
+            species="aerodactylmega",
+            name="Aerodactyl",
+            _last_details="Aerodactyl-Mega, L50",
+            types=[],
+            current_hp_fraction=1.0,
+            fainted=False,
+            status=None,
+        )
+        payload = _pokemon_payload(mon)
+        assert payload["sprite_id"] == "aerodactyl-mega"
+
+    def test_payload_sprite_id_for_pom_pom(self) -> None:
+        mon = SimpleNamespace(
+            species="oricoriopompom",
+            name="Oricorio",
+            _last_details="Oricorio-Pom-Pom, L50",
+            types=[],
+            current_hp_fraction=1.0,
+            fainted=False,
+            status=None,
+        )
+        payload = _pokemon_payload(mon)
+        # Oricorio-Pom-Pom's CDN slug is `oricorio-pau` (Hawaiian name).
+        assert payload["sprite_id"] == "oricorio-pau"
+
+    def test_team_member_payload_includes_sprite_id(self) -> None:
+        mon = SimpleNamespace(
+            species="slowkinggalar",
+            name="Slowking",
+            _last_details="Slowking-Galar, L50",
+            types=[],
+            current_hp_fraction=1.0,
+            fainted=False,
+            status=None,
+            item="assaultvest",
+            ability="regenerator",
+        )
+        payload = _team_member_payload(mon, 1)
+        assert payload["species"] == "Slowking-Galar"
+        assert payload["sprite_id"] == "slowking-galar"
+        assert payload["name"] == "Slowking"
+
+    def test_team_member_label_uses_full_form(self) -> None:
+        mon = SimpleNamespace(
+            species="slowkinggalar",
+            name="Slowking",
+            _last_details="Slowking-Galar, L50",
+        )
+        # Nickname (from poke-env) differs from the variant species
+        # (from _last_details), so the label is "Nickname (Species)".
+        assert _team_member_label(mon, 0) == "Slowking (Slowking-Galar)"
+
+    def test_team_member_label_uses_species_when_no_nickname(self) -> None:
+        mon = SimpleNamespace(
+            species="slowkinggalar",
+            name=None,
+            _last_details="Slowking-Galar, L50",
+        )
+        # No nickname, so the label is just the variant species.
+        assert _team_member_label(mon, 0) == "Slowking-Galar"

@@ -21,6 +21,8 @@ from poke_env.player.battle_order import (
     ForfeitBattleOrder,
 )
 
+from pokecore.teams import sprite_id as _sprite_id
+
 
 @dataclass(frozen=True, slots=True)
 class PracticeActionOption:
@@ -541,8 +543,7 @@ def _order_slot_payload(order: Any) -> dict[str, object] | None:
 
 
 def _pokemon_payload(mon: Any) -> dict[str, object]:
-    species = getattr(mon, "species", None) or "unknown"
-    nickname = getattr(mon, "name", None) or species
+    display_species, display_nickname = _display_species_and_nickname(mon)
     types = _normalize_types(getattr(mon, "types", None))
     hp = getattr(mon, "current_hp_fraction", None)
     hp_percent = 100 if hp is None else max(0, min(100, round(hp * 100)))
@@ -553,9 +554,10 @@ def _pokemon_payload(mon: Any) -> dict[str, object]:
     else:
         status = status_name.value if hasattr(status_name, "value") else str(status_name).lower()
     return {
-        "name": nickname,
-        "species": species,
-        "species_id": _species_id(species),
+        "name": display_nickname,
+        "species": display_species,
+        "species_id": _species_id(display_species),
+        "sprite_id": _sprite_id(display_species),
         "types": types,
         "hp_percent": hp_percent,
         "status": status,
@@ -573,17 +575,17 @@ def _normalize_types(types: Any) -> list[str]:
 
 
 def _team_member_label(member: Any, position: int) -> str:
-    species = getattr(member, "species", None) or f"Slot {position + 1}"
-    nickname = getattr(member, "name", None)
-    if nickname and nickname != species:
-        return f"{nickname} ({species})"
+    display_species, display_nickname = _display_species_and_nickname(member)
+    species = display_species or f"Slot {position + 1}"
+    if display_nickname and display_nickname != display_species:
+        return f"{display_nickname} ({species})"
     return str(species)
 
 
 def _team_member_payload(member: Any, position: int) -> dict[str, object]:
-    species = getattr(member, "species", None) or f"slot-{position + 1}"
+    display_species, display_nickname = _display_species_and_nickname(member)
+    species = display_species or f"slot-{position + 1}"
     types = [str(t) for t in (getattr(member, "types", None) or [])]
-    nickname = getattr(member, "name", None)
     hp = getattr(member, "current_hp_fraction", None)
     hp_percent = 100 if hp is None else max(0, min(100, round(hp * 100)))
     fainted = bool(getattr(member, "fainted", False))
@@ -595,9 +597,10 @@ def _team_member_payload(member: Any, position: int) -> dict[str, object]:
     item = getattr(member, "item", None)
     ability = getattr(member, "ability", None)
     return {
-        "name": nickname or species,
+        "name": display_nickname or species,
         "species": species,
         "species_id": _species_id(species),
+        "sprite_id": _sprite_id(species),
         "types": types,
         "hp_percent": hp_percent,
         "status": status,
@@ -606,6 +609,34 @@ def _team_member_payload(member: Any, position: int) -> dict[str, object]:
         "item": str(item) if item else None,
         "ability": str(ability) if ability else None,
     }
+
+
+def _display_species_and_nickname(mon: Any) -> tuple[str, str | None]:
+    """Return the species name the user expects to see plus the nickname.
+
+    The Showdown server strips the form suffix from a Pokemon's display
+    name whenever the nickname matches the species (``sim/pokemon.ts``
+    rewrites ``set.name`` to ``baseSpecies.baseSpecies`` in that case).
+    That means for ``Slowking-Galar`` with no custom nickname the
+    server's ``|ident|`` arrives as ``p1: Slowking`` and poke-env's
+    ``Pokemon.name`` returns ``"Slowking"`` — even though the
+    ``|details|`` field correctly says ``"Slowking-Galar, L50"``.
+
+    We prefer the species from ``_last_details`` (which the server
+    fills with the full form name) and fall back to the teambuilder
+    species / id-form species when the details haven't arrived yet.
+    """
+    details = getattr(mon, "_last_details", None) or ""
+    if details:
+        first = details.split(",", 1)[0].strip()
+        if first:
+            species = first
+            return species, getattr(mon, "name", None)
+    species_id = getattr(mon, "species", None) or "unknown"
+    nickname = getattr(mon, "name", None)
+    if nickname and nickname != species_id:
+        return species_id, nickname
+    return species_id, None
 
 
 def _species_id(species: str) -> str:

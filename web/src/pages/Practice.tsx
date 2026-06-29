@@ -63,12 +63,31 @@ function spriteUrls(speciesId: string): string[] {
   ];
 }
 
-function MonSprite({ speciesId, name, size = 40 }: { speciesId: string; name: string; size?: number }) {
-  const urls = spriteUrls(speciesId);
+function MonSprite({
+  speciesId,
+  name,
+  size = 40,
+  spriteId,
+}: {
+  speciesId: string;
+  name: string;
+  size?: number;
+  spriteId?: string;
+}) {
+  // Prefer the dash-form sprite id (e.g. "slowking-galar") so the CDN
+  // slug matches the variant. Fall back to the id form (e.g.
+  // "slowkinggalar") when the payload doesn't ship a separate
+  // spriteId — that path is for legacy payloads only.
+  const urlId = spriteId || speciesId;
+  const urls = spriteUrls(urlId);
   const [idx, setIdx] = useState(0);
   const [failed, setFailed] = useState(urls.length === 0);
   const [loaded, setLoaded] = useState(false);
-  useEffect(() => { setIdx(0); setFailed(urls.length === 0); setLoaded(false); }, [speciesId]);
+  useEffect(() => {
+    setIdx(0);
+    setFailed(urls.length === 0);
+    setLoaded(false);
+  }, [urlId]);
   if (failed || !urls[idx]) {
     return (
       <div className="mon-icon fallback" style={{ width: size, height: size }} title={name}>
@@ -370,7 +389,7 @@ export default function Practice() {
         style={{ borderColor: mon.fainted ? "var(--line)" : color }}
       >
         <span className="switch-key" aria-hidden="true">{hotkey}</span>
-        <MonSprite speciesId={mon.species_id} name={mon.name} size={42} />
+        <MonSprite speciesId={mon.species_id} spriteId={mon.sprite_id} name={mon.name} size={42} />
         <span className="switch-body">
           <span className="switch-label">{submitting === opt.id ? "Submitting..." : label}</span>
           <span className="switch-meta">
@@ -454,7 +473,7 @@ export default function Practice() {
                   style={{ borderColor: color }}
                 >
                   <span className="switch-key" aria-hidden="true">{i + 1}</span>
-                  <MonSprite speciesId={mon.species_id} name={mon.name} size={42} />
+                  <MonSprite speciesId={mon.species_id} spriteId={mon.sprite_id} name={mon.name} size={42} />
                   <span className="switch-body">
                     <span className="switch-label">
                       {mon.name}
