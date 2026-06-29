@@ -18,6 +18,7 @@ import re
 from collections.abc import Callable, Iterable
 from typing import Any
 
+from pokecore.teams import sprite_id
 from pokeengine.events import Event, EventKind
 
 _HP_FRACTION = re.compile(r"^(\d+)/(\d+)(?:\s+(\w+))?$")
@@ -83,6 +84,7 @@ def _pokemon_ref(raw: str, details: str | None = None) -> dict[str, str]:
             "pokemon": pokemon,
             "species": species,
             "species_id": _species_id(species),
+            "sprite_id": sprite_id(species),
         }
     side = f"p{match.group(1)}"
     slot = match.group(2) or "a"
@@ -94,6 +96,7 @@ def _pokemon_ref(raw: str, details: str | None = None) -> dict[str, str]:
         "pokemon": pokemon,
         "species": species,
         "species_id": _species_id(species),
+        "sprite_id": sprite_id(species),
     }
 
 

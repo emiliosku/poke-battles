@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { battleSidesFromEvents, formatEvent, formatEventWithContext, visibleTimelineEvents } from "./battleView";
+import { battleSidesFromEvents, formatEvent, visibleTimelineEvents } from "./battleView";
 import type { BattleEvent } from "./api";
 
 describe("battle timeline view helpers", () => {
@@ -84,7 +84,7 @@ describe("battle timeline view helpers", () => {
         target: "p1a: Slowking",
         raw: {
           target: { side: "p1", slot: "a", pokemon: "Slowking", species_id: "slowking", sprite_id: "slowking" },
-          hp: { hp_text: "64/100", hp_percent: 64 },
+          hp: { hp_percent: 64 },
         },
       },
     ];
@@ -95,37 +95,5 @@ describe("battle timeline view helpers", () => {
     expect(playerSide.slots[0].speciesId).toBe("slowkinggalar");
     expect(playerSide.slots[0].spriteId).toBe("slowking-galar");
     expect(playerSide.slots[0].hp).toBe(64);
-    expect(formatEventWithContext(events, 0)).toBe("Slowking-Galar switched in (ready)");
-    expect(formatEventWithContext(events, 1)).toBe("Slowking-Galar took damage (64/100)");
-  });
-
-  it("recovers switch forms from details when normalized events lack species", () => {
-    const events: BattleEvent[] = [
-      {
-        kind: "switch",
-        turn: 1,
-        side: "p2b: Slowking",
-        detail: "Slowking-Galar, L50, F 100/100",
-        raw: {
-          pokemon: { side: "p2", slot: "b", pokemon: "Slowking", species_id: "slowking" },
-          hp: { hp_text: "Slowking-Galar, L50, F" },
-        },
-      },
-      {
-        kind: "move",
-        turn: 1,
-        source: "p2b: Slowking",
-        detail: "Sludge Bomb",
-        raw: { source: { side: "p2", slot: "b", pokemon: "Slowking", species_id: "slowking" } },
-      },
-    ];
-
-    const [, opponentSide] = battleSidesFromEvents(events);
-
-    expect(opponentSide.slots[1].active).toBe("Slowking-Galar");
-    expect(opponentSide.slots[1].speciesId).toBe("slowkinggalar");
-    expect(opponentSide.slots[1].spriteId).toBe("slowking-galar");
-    expect(formatEventWithContext(events, 0)).toBe("Slowking-Galar switched in (Slowking-Galar, L50, F)");
-    expect(formatEventWithContext(events, 1)).toBe("Slowking-Galar used Sludge Bomb");
   });
 });

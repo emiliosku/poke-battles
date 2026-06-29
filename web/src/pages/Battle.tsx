@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, wsUrl, type BattleEvent, type BattleResponse, type FormatOption, type ModelOption, type Team } from "../api";
 import { useAuth } from "../auth";
-import { Battlefield, formatEventsWithContext, visibleTimelineEvents } from "../battleView";
+import { Battlefield, formatEvent, visibleTimelineEvents } from "../battleView";
 
 export default function Battle() {
   const { id } = useParams<{ id: string }>();
@@ -118,8 +118,6 @@ export default function Battle() {
   };
 
   if (id) {
-    const timeline = visibleTimelineEvents(events);
-    const narration = formatEventsWithContext(timeline);
     return (
       <main className="page">
         <section className="hero"><span className="eyebrow">Live battle</span><h1>{id}</h1></section>
@@ -135,7 +133,7 @@ export default function Battle() {
           </div>
         </section>
         <section className="grid two" style={{ marginTop: 16 }}>
-          <div className="card"><h2>Battle narration</h2><div className="event-log">{timeline.length === 0 && <p>Waiting for battle events...</p>}{timeline.map((event, i) => <div className="event-line" key={`${event.kind}-${i}`}>{narration[i]}</div>)}</div></div>
+          <div className="card"><h2>Battle narration</h2><div className="event-log">{visibleTimelineEvents(events).length === 0 && <p>Waiting for battle events...</p>}{visibleTimelineEvents(events).map((event, i) => <div className="event-line" key={`${event.kind}-${i}`}>{formatEvent(event)}</div>)}</div></div>
           <div className="card"><h2>Raw protocol</h2><div className="event-log">{rawLog.length === 0 && <p>Waiting for raw protocol...</p>}{rawLog.map((line, i) => <div className="event-line" key={`${line}-${i}`}>{line}</div>)}</div></div>
         </section>
       </main>

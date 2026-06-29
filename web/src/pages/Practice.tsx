@@ -15,7 +15,7 @@ import {
   type Team,
 } from "../api";
 import { useAuth } from "../auth";
-import { Battlefield, formatEventsWithContext, visibleTimelineEvents } from "../battleView";
+import { Battlefield, formatEvent, visibleTimelineEvents } from "../battleView";
 
 const terminalStatuses = new Set(["finished", "failed", "user_timeout_loss", "timed_out_points", "timed_out_draw"]);
 
@@ -143,7 +143,6 @@ export default function Practice() {
   const requiresTeams = customFormat.trim() ? false : selectedFormat?.requires_team;
   const launchDisabled = creating || Boolean(requiresTeams && (!userTeamId || !aiTeamId));
   const timeline = visibleTimelineEvents(events);
-  const narration = formatEventsWithContext(timeline);
 
   useEffect(() => {
     Promise.all([api.meta.formats(), api.meta.models(), user ? api.teams.list() : Promise.resolve([])])
@@ -677,7 +676,7 @@ export default function Practice() {
           )}
         </section>
         <section className="grid two" style={{ marginTop: 16 }}>
-          <div className="card"><h2>Battle narration</h2><div className="event-log">{timeline.length === 0 && <p>Waiting for battle events...</p>}{timeline.map((event, i) => <div className="event-line" key={`${event.kind}-${i}`}>{narration[i]}</div>)}</div></div>
+          <div className="card"><h2>Battle narration</h2><div className="event-log">{timeline.length === 0 && <p>Waiting for battle events...</p>}{timeline.map((event, i) => <div className="event-line" key={`${event.kind}-${i}`}>{formatEvent(event)}</div>)}</div></div>
           <div className="card"><h2>Replay</h2>{battle && terminalStatuses.has(battle.status) ? <Link className="button" to="/replays" state={{ battleId: battle.id }}>Open replay</Link> : <p>Replay is saved after the practice battle ends.</p>}</div>
         </section>
       </main>
