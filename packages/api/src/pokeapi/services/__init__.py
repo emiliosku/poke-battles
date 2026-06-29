@@ -20,6 +20,7 @@ from poke_env.ps_client.account_configuration import AccountConfiguration
 from poke_env.ps_client.server_configuration import ServerConfiguration
 
 from pokeapi.services.practice import PracticeActionController, decide_points
+from pokecore.teams import normalize_team_paste_for_showdown
 from pokeengine.events import Event, EventKind
 from pokeengine.player import AgentPlayer
 from pokeengine.runner import (
@@ -199,7 +200,7 @@ class BattleService:
             server_configuration=server,
             battle_format=battle_format,
             max_concurrent_battles=1,
-            team=team1_paste,
+            team=normalize_team_paste_for_showdown(team1_paste),
             choose_move_for_turn=self.chooser_for(model1),
             on_event=_broadcast_event,
             on_raw_line=_broadcast_raw,
@@ -211,7 +212,7 @@ class BattleService:
             server_configuration=server,
             battle_format=battle_format,
             max_concurrent_battles=1,
-            team=team2_paste,
+            team=normalize_team_paste_for_showdown(team2_paste),
             choose_move_for_turn=self.chooser_for(model2),
             on_event=_broadcast_event,
             on_raw_line=_broadcast_raw,
@@ -280,7 +281,7 @@ class BattleService:
             server_configuration=server,
             battle_format=battle_format,
             max_concurrent_battles=1,
-            team=player_team_paste,
+            team=normalize_team_paste_for_showdown(player_team_paste),
             choose_move_for_turn=_human_chooser,
             on_event=_broadcast_event,
             on_raw_line=_broadcast_raw,
@@ -291,7 +292,7 @@ class BattleService:
             server_configuration=server,
             battle_format=battle_format,
             max_concurrent_battles=1,
-            team=ai_team_paste,
+            team=normalize_team_paste_for_showdown(ai_team_paste),
             choose_move_for_turn=self.chooser_for(ai_model),
             on_event=_broadcast_event,
             on_raw_line=_broadcast_raw,

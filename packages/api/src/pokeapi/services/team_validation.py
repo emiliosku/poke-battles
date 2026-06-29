@@ -190,7 +190,11 @@ class ShowdownTeamValidator:
         except Exception:
             return None
         try:
-            return ConstantTeambuilder(team_paste).packed_team
+            from pokecore.teams import normalize_team_paste_for_showdown
+
+            return ConstantTeambuilder(
+                normalize_team_paste_for_showdown(team_paste) or team_paste
+            ).packed_team
         except Exception as exc:
             logger.warning("ConstantTeambuilder failed: %s", exc)
             return None

@@ -310,6 +310,27 @@ class TestPackAndDrain:
         monkeypatch.setattr(builtins, "__import__", fake_import)
         assert ShowdownTeamValidator._pack("any paste") is None
 
+    def test_pack_includes_species_for_variant_forms(self) -> None:
+        """Regression: poke-env 0.15.0's ``from_showdown`` only sets the
+        species field on the parsed ``TeambuilderPokemon`` when the
+        header has the ``Nickname (Species) @ Item`` form. For a plain
+        ``Species @ Item`` header the packed team ends up with an empty
+        species field. ``_pack`` must normalise the paste so variant
+        forms like ``Typhlosion-Hisui`` ship a non-empty species."""
+        packed = ShowdownTeamValidator._pack(
+            "Typhlosion-Hisui @ Choice Specs\n"
+            "Ability: Blaze\n"
+            "EVs: 252 SpA / 4 SpD / 252 Spe\n"
+            "Timid Nature\n"
+            "- Eruption"
+        )
+        assert packed is not None
+        # The packed format begins with `nickname|species|item|...`. The
+        # bug presented as `Typhlosion-Hisui||choicespecs|...` (empty
+        # species). After the fix it should read
+        # `Typhlosion-Hisui|typhlosionhisui|choicespecs|...`.
+        assert packed.startswith("Typhlosion-Hisui|typhlosionhisui|")
+
     @pytest.mark.asyncio
     async def test_drain_reads_until_quiet(self) -> None:
         ws = _FakeWebSocket(["|a|", "|b|", "|c|"])

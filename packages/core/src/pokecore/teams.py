@@ -310,6 +310,103 @@ def _parse_header(line: str) -> tuple[str | None, str, str | None]:
     return nickname, species, item
 
 
+_GENDER_SUFFIX_RE = re.compile(r"\s*\((M|F)\)\s*$")
+_TRAILING_PARENS_RE = re.compile(r"\(([^)]+)\)\s*$")
+
+
+def _normalize_header_for_showdown(line: str) -> str:
+    """Wrap a Pokémon header so poke-env's ``from_showdown`` parser
+    correctly populates both ``mon.nickname`` and ``mon.species``.
+
+    poke-env 0.15.0's :class:`TeambuilderPokemon.from_showdown` only sets
+    ``mon.species`` when the header has the ``Nickname (Species) @ Item``
+    form. For a plain ``Species @ Item`` header, the species field on the
+    parsed object is left as ``None``. The packed team sent over the wire
+    then has an empty species field (``Species||item|...``), and the
+    client-side :class:`Pokemon` falls back to the base species for its
+    display name — ``Typhlosion-Hisui`` renders as ``Typhlosion``,
+    ``Slowking-Galar`` as ``Slowking``, ``Oricorio-Pom-Pom`` as
+    ``Oricorio``, and so on. The bug also breaks sprite URLs and the
+    LLM's switch-matcher equality check (which compares the id-form
+    species against the LLM's display name).
+
+    Showdown's own ``Teams.unpack`` happens to recover the species from
+    the nickname via ``set.species = unpackName("") || set.name``, so the
+    server-side battle runs with the correct form — only the client-side
+    observers are degraded.
+
+    This helper rewrites the header into ``Nickname (Species) @ Item``
+    form (using the species as its own nickname) when no such parens
+    are present, leaving nicknames, gender markers, and items untouched
+    in every other case. The transform is idempotent.
+    """
+    text = line.rstrip()
+    item: str | None = None
+    if " @ " in text:
+        text, item_part = text.rsplit(" @ ", 1)
+        item = item_part.strip()
+        text = text.rstrip()
+    gender: str | None = None
+    gender_match = _GENDER_SUFFIX_RE.search(text)
+    if gender_match:
+        gender = gender_match.group(1)
+        text = text[: gender_match.start()].rstrip()
+    if not _TRAILING_PARENS_RE.search(text):
+        text = f"{text} ({text})"
+    parts = [text]
+    if gender:
+        parts.append(f"({gender})")
+    result = " ".join(parts)
+    if item:
+        result = f"{result} @ {item}"
+    return result
+
+
+def normalize_team_paste_for_showdown(paste: str | None) -> str | None:
+    """Normalize a Showdown team paste for poke-env's teambuilder parser.
+
+    Wraps each Pokémon header's species in ``(Species)`` form so that
+    poke-env's :class:`TeambuilderPokemon.from_showdown` correctly sets
+    the ``mon.species`` field for variant forms (regional forms like
+    ``-Hisui``/``-Galar``/``-Alola``/``-Paldea``, special forms like
+    ``-Mega``/``-Mega-X``/``-Mega-Y``/``-Pom-Pom``/``-Rapid-Strike``,
+    etc.). See :func:`_normalize_header_for_showdown` for the full
+    rationale.
+
+    Blank lines, ``=== team name ===`` headers, and ``// comment`` lines
+    are preserved as-is. The transform is idempotent.
+
+    Returns ``None`` unchanged. Returns the input string unchanged when
+    it contains no Pokémon headers (e.g. empty string or only blanks).
+    The output uses ``\\n`` as the line separator.
+    """
+    if paste is None or not paste.strip():
+        return paste
+    out_lines: list[str] = []
+    expecting_header = True
+    for raw in paste.splitlines():
+        line = raw.rstrip()
+        stripped = line.strip()
+        if not stripped:
+            out_lines.append(line)
+            expecting_header = True
+            continue
+        if stripped.startswith("===") and stripped.endswith("==="):
+            out_lines.append(line)
+            expecting_header = True
+            continue
+        if stripped.startswith("//"):
+            out_lines.append(line)
+            expecting_header = True
+            continue
+        if expecting_header:
+            out_lines.append(_normalize_header_for_showdown(line))
+            expecting_header = False
+        else:
+            out_lines.append(line)
+    return "\n".join(out_lines)
+
+
 def _parse_pokemon_block(
     block: Sequence[str],
     type_resolver: TypeResolver | None = None,
