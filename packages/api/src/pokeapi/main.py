@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -31,9 +32,30 @@ from pokeapi.services import BattleService
 from pokeapi.services.practice import PracticeActionController
 from pokeapi.services.team_validation import ShowdownTeamValidator
 from pokeapi.settings import get_settings
+from pokecore.sprite_status import get_status as get_sprite_status
 from pokellm.config import find_models_yaml, load_models_yaml
 
 logger = logging.getLogger(__name__)
+
+
+async def _warm_sprite_status_cache() -> None:
+    """Pre-populate the in-memory sprite coverage report so the first
+    request to ``/api/sprites/status`` returns instantly instead of
+    blocking the event loop for ~60-80s on a cold cache. The probe is
+    already IO-bound and threadpool-friendly, so we run it via
+    :func:`asyncio.to_thread`. Errors are logged and swallowed — a
+    failed warm-up just means the first request pays the full cost.
+    """
+    try:
+        report = await asyncio.to_thread(get_sprite_status)
+    except Exception:
+        logger.exception("sprite status warm-up failed; first request will probe live")
+        return
+    logger.info(
+        "sprite status warm-up done: %d species probed in %.1fs",
+        report.count,
+        report.duration_s,
+    )
 
 
 @asynccontextmanager
@@ -68,9 +90,11 @@ async def lifespan(app: FastAPI) -> Any:
     team_validator_state: ShowdownTeamValidator | None = None
     app.state.team_validator = team_validator_state
     logger.info("pokeapi ready on %s", settings.database_url)
+    warmup_task = asyncio.create_task(_warm_sprite_status_cache())
     try:
         yield
     finally:
+        warmup_task.cancel()
         validator = app.state.team_validator
         if validator is not None:
             await validator.stop()

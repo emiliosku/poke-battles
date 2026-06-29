@@ -426,6 +426,94 @@ class TestMeta:
             assert "Psychic" in entry["types"]
 
 
+class TestSpriteStatusNonBlocking:
+    """Regression: the sprite probe used to be invoked inline from an
+    ``async def`` route, which froze the single-worker uvicorn event
+    loop for the full ~60-80s probe. Other tabs (teams, leaderboard,
+    health) would hang behind it. The fix pushes the probe into the
+    default threadpool via :func:`asyncio.to_thread`. These tests
+    pin that behavior without touching the live CDN.
+    """
+
+    async def test_probe_does_not_block_concurrent_requests(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import asyncio
+        import threading
+        import time as _time
+
+        import httpx
+        from httpx import ASGITransport
+
+        from pokeapi.routes import sprites as sprites_route
+        from pokeapi.schemas import SpriteStatusResponse
+        from pokecore.sprite_status import SpriteStatusReport
+
+        probe_delay_s = 0.4
+        main_thread = threading.get_ident()
+        recorded: dict[str, int | float] = {}
+
+        def slow_stub(*, refresh: bool = False) -> SpriteStatusReport:
+            _ = refresh
+            recorded["thread"] = threading.get_ident()
+            recorded["started"] = _time.monotonic()
+            # Simulate the long CDN probe: a blocking sleep inside a
+            # threadpool thread is fine; inside the event loop it
+            # would freeze every other coroutine.
+            import time as _t
+
+            _t.sleep(probe_delay_s)
+            return SpriteStatusReport(
+                checked_at=0.0,
+                count=0,
+                duration_s=probe_delay_s,
+                results=[],
+            )
+
+        monkeypatch.setattr(sprites_route, "get_status", slow_stub)
+
+        # Build a fresh app *without* running the lifespan — the
+        # startup warmup would otherwise hit the real CDN and dwarf
+        # our timing assertions.
+        db_path = tmp_path / "nonblocking.db"
+        os.environ["DATABASE_URL"] = f"sqlite:///{db_path}"
+        os.environ["SESSION_SECRET"] = "test-session-secret"  # noqa: S105
+        import pokeapi.settings as settings_module
+
+        settings_module._settings = None
+        from pokeapi.main import create_app
+
+        app = create_app()
+
+        transport = ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:
+            started = _time.monotonic()
+            status_resp, health_resp = await asyncio.gather(
+                ac.get("/sprites/status"),
+                ac.get("/health"),
+            )
+            elapsed = _time.monotonic() - started
+
+        assert status_resp.status_code == 200, status_resp.text
+        assert health_resp.status_code == 200, health_resp.text
+        # Both routes share a single event loop. If the probe ran
+        # inline, total time would be >= probe_delay_s + health cost
+        # (serialized). With asyncio.to_thread, the health request
+        # piggybacks on the probe and we stay comfortably under 2x.
+        assert elapsed < probe_delay_s * 2, (
+            f"event loop appears blocked: {elapsed:.3f}s for "
+            f"probe={probe_delay_s}s + concurrent /health"
+        )
+        # The probe should have run on a worker thread, not the
+        # asyncio thread that drove the request.
+        assert recorded["thread"] != main_thread, (
+            "get_status ran on the asyncio thread; asyncio.to_thread missing"
+        )
+        # Sanity: the response shape is the documented schema.
+        body = SpriteStatusResponse.model_validate(status_resp.json())
+        assert body.results == []
+
+
 class TestAuth:
     def test_me_anonymous(self, client: TestClient) -> None:
         r = client.get("/auth/me")

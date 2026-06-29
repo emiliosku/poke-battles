@@ -13,6 +13,8 @@ Not auth-gated — this is a developer tool, not user data.
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Query
 
 from pokeapi.schemas import SpriteResultEntry, SpriteStatusResponse
@@ -36,9 +38,15 @@ async def sprite_status(
         description="Optional filter by Pokémon type (e.g. ``fire``).",
     ),
 ) -> SpriteStatusResponse:
-    # Always pull from the full-set cache so filters don't trigger a
-    # re-probe. The filter is cheap once the report is in memory.
-    report = get_status(refresh=refresh)
+    # The probe walks ~1.5k species x 7 CDN URLs and is fully
+    # synchronous. Running it inline would block the single uvicorn
+    # worker's event loop for ~60-80s, freezing every other tab on the
+    # site (teams/leaderboard/health/etc.). Push it to the default
+    # threadpool so the loop keeps handling requests; the probe
+    # itself already uses a ThreadPoolExecutor internally, so we
+    # simply wrap the *outer* call. Filters are applied on the
+    # in-memory report after the probe returns.
+    report = await asyncio.to_thread(get_status, refresh=refresh)
     results = report.results
     if q:
         needle = q.lower()
