@@ -244,11 +244,11 @@ jobs:
       # script via ${{ }} interpolation (the action substitutes them
       # before the script is sent over SSH).
       # Note: --platform must be passed explicitly so the daemon picks
-      # the right entry from a multi-arch manifest list. poke-battles-
-      # showdown is amd64-only (SIGILLs under QEMU arm64 build) and the
-      # OCI host is arm64, so without --platform the pull fails with
-      # "no matching manifest for linux/arm64/v8" even when the image
-      # is already cached locally.
+      # the right entry from a multi-arch manifest list. The OCI host
+      # is arm64 and every service image is now built for arm64, but
+      # without --platform the pull fails with "no matching manifest
+      # for linux/arm64/v8" even when the image is already cached
+      # locally.
       - name: SSH into server, pull by digest, restart, verify
         uses: appleboy/ssh-action@v1
         with:
@@ -269,7 +269,7 @@ jobs:
             declare -A PLATFORMS=(
               [poke-battles-api]="linux/arm64"
               [poke-battles-web]="linux/arm64"
-              [poke-battles-showdown]="linux/amd64"
+              [poke-battles-showdown]="linux/arm64"
               [poke-battles-showdown-client]="linux/arm64"
             )
             for svc in "${!DIGESTS[@]}"; do
