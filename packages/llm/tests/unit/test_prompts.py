@@ -58,4 +58,4 @@ class TestStrategyProfile:
         assert strategy_profile("unknown") == strategy_profile("balanced")
 
     def test_prompt_version(self) -> None:
-        assert PROMPT_VERSION == "v1"
+        assert PROMPT_VERSION == "v2"

@@ -24,6 +24,7 @@ from poke_env.ps_client.server_configuration import (
     ServerConfiguration,
 )
 
+from pokecore.state import BattleState, FieldState, KnownMove, PokemonState
 from pokeengine.events import BattleResult, Event
 from pokeengine.parser import parse_line
 
@@ -213,4 +214,130 @@ __all__ = [
     "battle_to_state_dict",
     "make_order",
     "parse_showdown_message_for_testing",
+    "state_from_battle",
 ]
+
+
+def state_from_battle(battle: AbstractBattle) -> BattleState:
+    """Build a :class:`BattleState` snapshot from a live poke-env battle.
+
+    This is the only place in the codebase that knows about poke-env types.
+    """
+    active = battle.active_pokemon
+    opp_active = battle.opponent_active_pokemon
+    player_team = list(battle.team.values()) if hasattr(battle, "team") else []
+    opponent_team = list(battle.opponent_team.values()) if hasattr(battle, "opponent_team") else []
+    return BattleState(
+        battle_id=str(getattr(battle, "battle_tag", "")),
+        turn=int(getattr(battle, "turn", 0) or 0),
+        format=str(getattr(battle, "format", "") or ""),
+        player_username=str(getattr(battle, "player_username", "") or ""),
+        opponent_username=str(getattr(battle, "opponent_username", "") or ""),
+        player=_side_from_team(player_team, active_mon=active),
+        opponent=_side_from_team(opponent_team, active_mon=opp_active),
+        field=_field_from_battle(battle),
+        can_tera=_read_can_tera(battle),
+    )
+
+
+def _read_can_tera(battle: AbstractBattle) -> bool:
+    """Read ``can_tera`` whether it's a property or a method."""
+    value = getattr(battle, "can_tera", False)
+    if callable(value):
+        return bool(value())
+    return bool(value)
+
+
+def _side_from_team(team: list[Any], *, active_mon: Any) -> tuple[PokemonState, ...]:
+    ordered: list[Any] = []
+    seen: set[int] = set()
+    if active_mon is not None:
+        for mon in team:
+            if mon is active_mon:
+                ordered.append(mon)
+                seen.add(id(mon))
+                break
+    for mon in team:
+        if id(mon) in seen:
+            continue
+        ordered.append(mon)
+        seen.add(id(mon))
+    if active_mon is not None and active_mon not in team:
+        ordered.insert(0, active_mon)
+    return tuple(_pokemon_from(mon, is_active=mon is active_mon) for mon in ordered)
+
+
+def _pokemon_from(mon: Any, *, is_active: bool) -> PokemonState:
+    species = str(getattr(mon, "species", "") or "")
+    nickname = species or "?"
+    types_raw = getattr(mon, "types", None) or ()
+    types: tuple[str, ...]
+    types = tuple(str(t) for t in types_raw)
+    return PokemonState(
+        species=species,
+        nickname=nickname,
+        types=types,
+        level=int(getattr(mon, "level", 100) or 100),
+        hp_fraction=float(getattr(mon, "current_hp_fraction", 1.0) or 0.0),
+        status=_status_name(mon),
+        ability=_str_or_none(getattr(mon, "ability", None)),
+        item=_str_or_none(getattr(mon, "item", None)),
+        tera_type=_str_or_none(getattr(mon, "tera_type", None)),
+        is_terastallized=bool(getattr(mon, "is_terastallized", False) or False),
+        is_active=is_active,
+        is_fainted=bool(getattr(mon, "fainted", False) or False),
+        boosts=dict(getattr(mon, "boosts", {}) or {}),
+        moves=tuple(_move_from(mv) for mv in (getattr(mon, "moves", {}) or {}).values()),
+    )
+
+
+def _move_from(mv: Any) -> KnownMove:
+    return KnownMove(
+        id=str(getattr(mv, "id", "") or ""),
+        name=str(getattr(mv, "name", "") or getattr(mv, "id", "") or ""),
+        type=str(getattr(mv, "type", "typeless") or "typeless"),
+        category=str(getattr(mv, "category", "status") or "status"),
+        base_power=int(getattr(mv, "base_power", 0) or 0),
+        accuracy=int(getattr(mv, "accuracy", 100) or 100),
+        pp=int(getattr(mv, "current_pp", 0) or 0),
+        max_pp=int(getattr(mv, "max_pp", 0) or 0),
+        priority=int(getattr(mv, "priority", 0) or 0),
+        target=str(getattr(mv, "target", "normal") or "normal"),
+        drain=float(getattr(mv, "drain", 0) or 0),
+        recoil=float(getattr(mv, "recoil", 0) or 0),
+        healing=float(getattr(mv, "heal", 0) or 0),
+    )
+
+
+def _status_name(mon: Any) -> str | None:
+    status = getattr(mon, "status", None)
+    if status is None:
+        return None
+    return str(getattr(status, "name", status))
+
+
+def _str_or_none(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    return text or None
+
+
+def _field_from_battle(battle: AbstractBattle) -> FieldState:
+    weather_dict = getattr(battle, "weather", {}) or {}
+    weather = next(iter(weather_dict), None)
+    fields_dict = getattr(battle, "fields", {}) or {}
+    terrain = next((k for k in fields_dict if str(k).endswith("terrain")), None)
+    player_hazards = {
+        str(k): int(v) for k, v in (getattr(battle, "side_conditions", {}) or {}).items()
+    }
+    opp_hazards = {
+        str(k): int(v) for k, v in (getattr(battle, "opponent_side_conditions", {}) or {}).items()
+    }
+    return FieldState(
+        weather=str(weather) if weather is not None else None,
+        terrain=str(terrain).replace("_terrain", "") if terrain is not None else None,
+        trick_room=any("trick_room" in str(k) for k in fields_dict),
+        player_hazards=player_hazards,
+        opponent_hazards=opp_hazards,
+    )

@@ -9,6 +9,8 @@ dependencies = [
     "pokeengine",
     "pokellm",
     "pokeapi",
+    "pokebench",
+    "pokerl",
     "pokecli",
 ]
 
@@ -33,6 +35,8 @@ pokecore = { workspace = true }
 pokeengine = { workspace = true }
 pokellm = { workspace = true }
 pokeapi = { workspace = true }
+pokebench = { workspace = true }
+pokerl = { workspace = true }
 pokecli = { workspace = true }
 
 [tool.ruff]
@@ -77,13 +81,16 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["ANN", "S101", "PLR2004", "PLR0913"]
+"tests/**" = ["ANN", "S101", "PLR2004", "PLR0913", "RUF003"]
+"packages/**/tests/**" = ["ANN", "S101", "PLR2004", "PLR0913", "RUF003"]
 "packages/engine/src/**" = ["S603", "S607", "S311", "ASYNC109"]
 "packages/api/src/**" = ["S311"]
+"packages/rl/src/pokerl/train.py" = ["F811"]
+"packages/rl/src/pokerl/env.py" = ["ANN401"]
 "scripts/**" = ["S603", "S607"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["pokecore", "pokellm", "pokeengine", "pokeapi"]
+known-first-party = ["pokecore", "pokellm", "pokeengine", "pokeapi", "pokebench", "pokerl"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -112,6 +119,14 @@ disallow_untyped_defs = false
 module = "poke_env.*"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = ["torch.*", "stable_baselines3.*", "sb3_contrib.*", "gymnasium.*", "tensorboard.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["pokerl.inference", "pokerl.env", "pokerl.train"]
+warn_return_any = false
+
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests/unit", "packages/*/tests/unit"]
@@ -131,14 +146,17 @@ markers = [
 [tool.coverage.run]
 branch = true
 source = [
-    "packages/core/src/pokecore",
-    "packages/engine/src/pokeengine",
-    "packages/llm/src/pokellm",
-    "packages/api/src/pokeapi",
+    "pokecore",
+    "pokeengine",
+    "pokellm",
+    "pokeapi",
+    "pokebench",
+    "pokerl",
 ]
 omit = [
-    "*/tests/*",
-    "*/__init__.py",
+    "packages/*/tests/*",
+    "tests/*",
+    "packages/*/src/*/__init__.py",
     "packages/engine/src/pokeengine/demo.py",
     "packages/engine/src/pokeengine/smoke.py",
     "packages/engine/src/pokeengine/__main__.py",

@@ -7,8 +7,15 @@ I/O dependencies and is safe to import anywhere.
 
 from __future__ import annotations
 
-from pokecore import elo, formats, teams, type_chart, types
-from pokecore.elo import GlickoRating, MatchResult, expected_pair, expected_score, rate, rate_pair
+from pokecore import damage, elo, formats, state, teams, type_chart, types
+from pokecore.damage import (
+    DamageRoll,
+    MoveInput,
+    PokemonInput,
+    Weather,
+    calc_damage,
+)
+from pokecore.elo import GlickoRating, expected_pair, expected_score, rate, rate_pair
 from pokecore.formats import (
     GEN9_OU,
     GEN9_RANDOM_BATTLE,
@@ -18,6 +25,7 @@ from pokecore.formats import (
     FormatKind,
     get_format,
 )
+from pokecore.state import BattleState, FieldState, KnownMove, PokemonState
 from pokecore.teams import (
     EVSpread,
     IVSpread,
@@ -60,27 +68,39 @@ __all__ = [
     "NATURE_BOOSTS",
     "NEUTRAL_NATURES",
     "SUPPORTED_FORMATS",
+    "BattleState",
     "Boosts",
     "Category",
+    "DamageRoll",
     "EVSpread",
+    "FieldState",
     "Format",
     "FormatKind",
     "Generation",
     "GlickoRating",
     "IVSpread",
-    "MatchResult",
+    "KnownMove",
+    "Level",
+    "MoveInput",
     "MoveSlot",
     "Nature",
     "NatureModifier",
+    "PokemonInput",
     "PokemonSet",
+    "PokemonSet",
+    "PokemonState",
+    "PokemonState",
     "Stat",
     "Status",
     "Team",
     "Type",
     "TypePair",
     "TypeResolver",
+    "Weather",
+    "calc_damage",
     "clamp",
     "coverage_summary",
+    "damage",
     "defensive_multiplier",
     "elo",
     "expected_pair",
@@ -88,6 +108,7 @@ __all__ = [
     "format_team",
     "formats",
     "get_format",
+    "hp_at_level",
     "is_immune",
     "offensive_coverage",
     "parse_team",
@@ -95,6 +116,7 @@ __all__ = [
     "rate_pair",
     "resists",
     "sprite_id",
+    "state",
     "teams",
     "type_chart",
     "type_multiplier",

@@ -14,6 +14,7 @@ import random
 import string
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from poke_env.ps_client.account_configuration import AccountConfiguration
@@ -37,6 +38,11 @@ from pokeapi.orchestrator import JobResult
 
 logger = logging.getLogger(__name__)
 
+# Per-model chooser stats. Each entry is a dict that the LLM/heuristic
+# chooser increments as it's called. ``run_battle`` reads and clears
+# these dicts after each battle so the bench harness can collect them.
+agent_stats: dict[str, dict[str, int]] = {}
+
 
 def _random_suffix(length: int = 4) -> str:
     return "".join(random.choices(string.digits, k=length))
@@ -59,20 +65,108 @@ def _random_chooser(player: AgentPlayer, battle: Any) -> Any:
     return player.choose_random_move(battle)
 
 
+def _heuristic_chooser(player: AgentPlayer, battle: Any) -> Any:
+    """Heuristic-based chooser. Returns a poke-env BattleOrder."""
+    from pokeengine.player import state_from_battle
+    from pokellm.heuristic import ActionKind, pick
+
+    h_stats = agent_stats.setdefault("heuristic", {"heuristic_calls": 0, "fallback_random": 0})
+    h_stats.setdefault("heuristic_calls", 0)
+    h_stats.setdefault("fallback_random", 0)
+    state = state_from_battle(battle)
+    if not state.player or not state.opponent:
+        h_stats["fallback_random"] += 1
+        return player.choose_random_move(battle)
+    try:
+        candidate = pick(state)
+    except ValueError as exc:
+        h_stats["fallback_random"] += 1
+        # One-shot debug log: dump the state so we can see why pick is failing.
+        if not h_stats.get("_logged_failure"):
+            h_stats["_logged_failure"] = 1
+            logger.warning(
+                "heuristic pick failed: %s. state.player=%d state.opponent=%d "
+                "active_player=%s active_opp=%s",
+                exc,
+                len(state.player),
+                len(state.opponent),
+                state.player[0].species if state.player else None,
+                state.opponent[0].species if state.opponent else None,
+            )
+        return player.choose_random_move(battle)
+    h_stats["heuristic_calls"] += 1
+    if candidate.kind == ActionKind.MOVE:
+        normalized = candidate.target_id.lower().replace(" ", "").replace("-", "")
+        for move in battle.available_moves:
+            if move.id == normalized:
+                return player.create_order(move)
+        return player.choose_random_move(battle)
+    # Switch
+    target = candidate.target_id.lower()
+    for mon in battle.available_switches:
+        if mon.species.lower() == target:
+            return player.create_order(mon)
+    return player.choose_random_move(battle)
+
+
 def _build_llm_chooser(
     model_name: str,
     config: AgentConfig,
+    *,
+    hybrid: bool = True,
 ) -> Callable[[AgentPlayer, Any], Any]:
-    """Construct an LLM-backed move chooser for ``AgentPlayer``."""
-    from pokeengine.player import battle_to_state_dict
+    """Construct an LLM-backed move chooser for ``AgentPlayer``.
+
+    When ``hybrid=True`` (the default) the agent sees the heuristic's
+    top-3 candidate actions as part of the prompt and can use the
+    multi-turn tool loop. When ``hybrid=False`` it falls back to the
+    pre-Phase-4 single-shot behaviour for A/B comparison.
+    """
+    from pokeengine.player import state_from_battle
     from pokellm.agent import LLMAgent
     from pokellm.clients import LLMClient
+    from pokellm.prompts import (
+        render_system_prompt as _render_system_prompt,
+    )
+    from pokellm.prompts import (
+        render_user_prompt as _render_user_prompt,
+    )
+    from pokellm.state_render import format_battle_state as _format_battle_state
 
     agent = LLMAgent(config=config, client=LLMClient(config=config))
+    # Per-battle chooser-call counter, closed over by the returned callable.
+    # Read by ``run_battle`` after the battle ends via ``agent._stats``.
+    stats: dict[str, int] = {
+        "llm_calls": 0,
+        "fallback_random": 0,
+    }
+    agent_stats[model_name] = stats
+
+    if not hybrid:
+        # Legacy single-shot mode: keep the system/user prompts compatible
+        # with the pre-Phase-4 layout. We still pass a state_str but the
+        # agent's decide_loop won't be exercised.
+        async def legacy_chooser(player: AgentPlayer, battle: Any) -> Any:
+            stats["llm_calls"] += 1
+            try:
+                state = state_from_battle(battle)
+                state_str = _format_battle_state(state)
+                system = _render_system_prompt()
+                user = _render_user_prompt(state_str)
+                decision = await agent.client.decide(system_prompt=system, user_prompt=user)
+                order = _legacy_decision_to_order(decision)
+            except Exception:
+                logger.exception("LLM chooser %s failed; falling back to random", model_name)
+                stats["fallback_random"] += 1
+                return player.choose_random_move(battle)
+            return _resolve_order(player, order, battle)
+
+        return legacy_chooser
 
     async def chooser(player: AgentPlayer, battle: Any) -> Any:
+        stats["llm_calls"] += 1
         try:
-            state = battle_to_state_dict(battle)
+            state = state_from_battle(battle)
             order = await agent.turn(state)
             if order.action == "choose_move" and order.move_id:
                 from poke_env.battle.move import Move
@@ -92,9 +186,45 @@ def _build_llm_chooser(
                 return player.create_order(Pokemon(species=target, gen=9))
         except Exception:
             logger.exception("LLM chooser %s failed; falling back to random", model_name)
+            stats["fallback_random"] += 1
         return player.choose_random_move(battle)
 
     return chooser
+
+
+@dataclass(frozen=True, slots=True)
+class _Order:
+    action: str
+    move_id: str | None = None
+    pokemon_name: str | None = None
+
+
+def _legacy_decision_to_order(decision: Any) -> _Order:
+    if decision.action == "choose_move" and decision.move_id:
+        return _Order(action="choose_move", move_id=decision.move_id)
+    if decision.action == "choose_switch" and decision.pokemon_name:
+        return _Order(action="choose_switch", pokemon_name=decision.pokemon_name)
+    return _Order(action="__fallback__")
+
+
+def _resolve_order(player: AgentPlayer, order: _Order, battle: Any) -> Any:
+    if order.action == "choose_move" and order.move_id:
+        from poke_env.battle.move import Move
+
+        normalized = order.move_id.lower().replace(" ", "").replace("-", "")
+        for move in battle.available_moves:
+            if move.id == normalized:
+                return player.create_order(move)
+        return player.create_order(Move("struggle", gen=9))
+    if order.action == "choose_switch" and order.pokemon_name:
+        from poke_env.battle.pokemon import Pokemon
+
+        target = order.pokemon_name.lower()
+        for mon in battle.available_switches:
+            if mon.species.lower() == target:
+                return player.create_order(mon)
+        return player.create_order(Pokemon(species=target, gen=9))
+    return player.choose_random_move(battle)
 
 
 def build_chooser(
@@ -103,13 +233,24 @@ def build_chooser(
 ) -> Callable[[AgentPlayer, Any], Any]:
     """Build the chooser for a given model name.
 
-    - ``config=None`` → random
-    - ``tier=mock`` → random
-    - otherwise → LLM via pokellm
+    Resolution order:
+
+    - ``model_name == "heuristic"`` or ``config.mode == "heuristic"`` →
+      deterministic heuristic baseline.
+    - ``config is None`` or ``tier=mock`` → random.
+    - ``config.mode == "legacy"`` → single-shot LLM (pre-Phase-4 behaviour).
+    - ``config.mode == "hybrid"`` (default) → meta-reasoner over the
+      heuristic's shortlist.
     """
+    if model_name == "heuristic":
+        return _heuristic_chooser
     if config is None or config.tier.value == "mock":
         return _random_chooser
-    return _build_llm_chooser(model_name, config)
+    if config.mode == "heuristic":
+        return _heuristic_chooser
+    if config.mode == "legacy":
+        return _build_llm_chooser(model_name, config, hybrid=False)
+    return _build_llm_chooser(model_name, config, hybrid=True)
 
 
 def _winner_from_events(events: list[Any]) -> str | None:
@@ -119,6 +260,25 @@ def _winner_from_events(events: list[Any]) -> str | None:
                 return str(event.detail)
             return None
     return None
+
+
+def _pop_chooser_stats(model_names: list[str]) -> dict[str, dict[str, int]]:
+    """Read and clear per-model chooser stats. Returns a fresh dict."""
+    out: dict[str, dict[str, int]] = {}
+    for name in model_names:
+        stats = agent_stats.get(name)
+        if stats is None:
+            continue
+        out[name] = dict(stats)
+        stats.clear()
+    # Heuristic uses a fixed name; surface it under each model that used it.
+    if (
+        "heuristic" in agent_stats
+        and agent_stats["heuristic"]
+        and any(n not in out for n in model_names)
+    ):
+        pass  # only attach if a chooser actually wrote to it
+    return out
 
 
 def _find_showdown_free_port() -> int:
@@ -242,6 +402,7 @@ class BattleService:
             "events": events,
             "raw_log": a.raw_log_for(bid),
             "events_count": len(events),
+            "chooser_stats": _pop_chooser_stats([model1, model2]),
         }
 
     async def run_practice_battle(

@@ -5,6 +5,7 @@ __pycache__/
 *.so
 .Python
 .venv/
+.uv-venv/
 venv/
 env/
 build/
@@ -26,6 +27,7 @@ MANIFEST
 
 # Testing
 .pytest_cache/
+bench_results/
 .coverage
 .coverage.*
 htmlcov/

@@ -1,4 +1,10 @@
-.PHONY: help install sync lint format typecheck test test-cov ci demo clean
+.PHONY: help install sync lint format typecheck test test-cov ci demo bench train clean
+
+MODELS ?= random heuristic
+N ?= 10
+FORMAT ?= gen9randombattle
+UV_PROJECT_ENVIRONMENT ?= .uv-venv
+export UV_PROJECT_ENVIRONMENT
 
 help:
 	@echo "Available targets:"
@@ -11,6 +17,8 @@ help:
 	@echo "  test-cov    - Run pytest with coverage"
 	@echo "  ci          - Run lint, typecheck, test-cov"
 	@echo "  demo        - Run a local 1v1 random battle"
+	@echo "  bench       - Run benchmark matchups (MODELS='random heuristic' N=10 FORMAT=gen9randombattle)"
+	@echo "  train       - Run RL training (requires Showdown server + [train] extra)"
 	@echo "  clean       - Remove build artifacts"
 
 install:
@@ -19,6 +27,8 @@ install:
 		-e "packages/engine[dev]" \
 		-e packages/llm \
 		-e packages/api \
+		-e packages/eval \
+		-e packages/rl \
 		-e pokecli
 
 sync:
@@ -36,6 +46,8 @@ typecheck:
 		packages/engine/src \
 		packages/llm/src \
 		packages/api/src \
+		packages/eval/src \
+		packages/rl/src \
 		tests
 
 test:
@@ -44,13 +56,19 @@ test:
 test-cov:
 	uv run pytest \
 		--cov=pokecore --cov=pokeengine \
-		--cov=pokellm --cov=pokeapi \
+		--cov=pokellm --cov=pokeapi --cov=pokebench --cov=pokerl \
 		--cov-report=term-missing --cov-report=html
 
 ci: lint typecheck test-cov
 
 demo:
 	uv run python -m pokeengine.demo
+
+bench:
+	uv run pokebench --models $(MODELS) --n-battles $(N) --format $(FORMAT)
+
+train:
+	uv run pokerl-train --timesteps 500000 --opponent random
 
 clean:
 	rm -rf .venv build dist .pytest_cache .ruff_cache .mypy_cache htmlcov

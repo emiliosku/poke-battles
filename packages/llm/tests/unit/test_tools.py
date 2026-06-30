@@ -22,6 +22,8 @@ class TestToolSchemas:
             "lookup_type_chart",
             "estimate_damage",
             "evaluate_switch",
+            "evaluate_candidate",
+            "propose_alternative",
         }
 
     def test_schemas_have_parameters(self) -> None:

@@ -1,9 +1,17 @@
 """Tool definitions sent to the LLM.
 
-Five tools in two tiers:
-- **Action tools** (always exposed): ``choose_move`` and ``choose_switch``.
-- **Reasoning tools** (optional, recommended for small models):
-  ``lookup_type_chart``, ``estimate_damage``, ``evaluate_switch``.
+Two tiers:
+
+- **Action tools** (terminal): ``choose_move`` and ``choose_switch``. Calling
+  either of these ends the multi-turn reasoning loop and returns the
+  decision to the agent.
+- **Reasoning tools**: ``lookup_type_chart``, ``estimate_damage``,
+  ``evaluate_switch``, ``evaluate_candidate``, ``propose_alternative``.
+  Their results are appended to the message history and the loop continues.
+
+The action tools are always exposed. The reasoning tools are only exposed
+when the model has ``supports_tools=True`` in :class:`AgentConfig` — small
+or older models sometimes can't handle 7 tools.
 
 Re-exported from :mod:`pokellm`.
 """
@@ -28,6 +36,8 @@ class ToolName(StrEnum):
     LOOKUP_TYPE_CHART = "lookup_type_chart"
     ESTIMATE_DAMAGE = "estimate_damage"
     EVALUATE_SWITCH = "evaluate_switch"
+    EVALUATE_CANDIDATE = "evaluate_candidate"
+    PROPOSE_ALTERNATIVE = "propose_alternative"
 
 
 CHOOSE_MOVE_TOOL: dict[str, Any] = {
@@ -160,12 +170,71 @@ EVALUATE_SWITCH_TOOL: dict[str, Any] = {
 }
 
 
+EVALUATE_CANDIDATE_TOOL: dict[str, Any] = {
+    "name": "evaluate_candidate",
+    "description": (
+        "Look up the heuristic's pre-computed score and justification for a "
+        "candidate action (move or switch) that the LLM is considering. Use "
+        "this to inspect the deterministic evaluator's reasoning before "
+        "deciding. Returns the candidate's score, expected damage, and one-line "
+        "justification."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "kind": {
+                "type": "string",
+                "enum": ["move", "switch"],
+                "description": "Whether the candidate is a move or a switch.",
+            },
+            "target_id": {
+                "type": "string",
+                "description": "Move id (e.g. 'earthquake') or species name (e.g. 'Garchomp').",
+            },
+        },
+        "required": ["kind", "target_id"],
+    },
+}
+
+
+PROPOSE_ALTERNATIVE_TOOL: dict[str, Any] = {
+    "name": "propose_alternative",
+    "description": (
+        "Propose an action that the heuristic did NOT include in its shortlist. "
+        "The system will recompute the score from scratch using the damage "
+        "calculator and return whether the alternative beats the shortlist. "
+        "Use this for setup moves, switches into immune-types, or other "
+        "non-obvious plays the heuristic may have missed."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "kind": {
+                "type": "string",
+                "enum": ["move", "switch"],
+            },
+            "target_id": {
+                "type": "string",
+                "description": "Move id or species name.",
+            },
+            "reasoning": {
+                "type": "string",
+                "description": "Why you think the alternative is better than the shortlist.",
+            },
+        },
+        "required": ["kind", "target_id", "reasoning"],
+    },
+}
+
+
 TOOLS: tuple[dict[str, Any], ...] = (
     CHOOSE_MOVE_TOOL,
     CHOOSE_SWITCH_TOOL,
     LOOKUP_TYPE_CHART_TOOL,
     ESTIMATE_DAMAGE_TOOL,
     EVALUATE_SWITCH_TOOL,
+    EVALUATE_CANDIDATE_TOOL,
+    PROPOSE_ALTERNATIVE_TOOL,
 )
 
 
@@ -255,15 +324,77 @@ def evaluate_switch_tool(
     return {"score": round(score, 1), "note": note}
 
 
+def evaluate_candidate_tool(
+    kind: str, target_id: str, shortlist_view: list[dict[str, object]] | None = None
+) -> dict[str, object]:
+    """Implementation of the ``evaluate_candidate`` tool.
+
+    The LLM agent injects the heuristic's pre-computed shortlist via
+    ``shortlist_view`` (a list of dicts with ``kind``, ``target_id``,
+    ``score``, ``justification``). The tool looks up the candidate and
+    returns its details.
+    """
+    for cand in shortlist_view or []:
+        if cand.get("kind") == kind and cand.get("target_id") == target_id:
+            return {
+                "found": True,
+                "kind": cand.get("kind"),
+                "target_id": cand.get("target_id"),
+                "score": cand.get("score"),
+                "justification": cand.get("justification"),
+                "expected_pct": cand.get("expected_pct"),
+                "ko_chance": cand.get("ko_chance"),
+            }
+    return {"found": False, "note": f"no {kind} {target_id!r} in the heuristic's shortlist"}
+
+
+def propose_alternative_tool(
+    kind: str,
+    target_id: str,
+    reasoning: str,
+    shortlist_view: list[dict[str, object]] | None = None,
+    damage_estimate: float | None = None,
+) -> dict[str, object]:
+    """Implementation of the ``propose_alternative`` tool.
+
+    The LLM agent injects the heuristic's shortlist and (for moves) a
+    damage estimate. The tool records the proposal and returns the
+    comparison against the top of the shortlist. The agent decides whether
+    to actually call ``choose_move``/``choose_switch`` afterwards.
+    """
+    shortlist = shortlist_view or []
+    top = shortlist[0] if shortlist else None
+    top_score: object = top.get("score") if top else None
+    shortlist_top: float = float(top_score) if isinstance(top_score, (int, float)) else 0.0
+    top_id: object = top.get("target_id") if top else None
+    shortlist_top_id: str | None = str(top_id) if isinstance(top_id, str) else None
+    proposal_score: float = damage_estimate if damage_estimate is not None else 0.0
+    beats = proposal_score > shortlist_top if top is not None else False
+    return {
+        "proposed": {"kind": kind, "target_id": target_id},
+        "reasoning": reasoning,
+        "proposal_score": proposal_score,
+        "shortlist_top": {"target_id": shortlist_top_id, "score": shortlist_top},
+        "beats_shortlist": beats,
+        "note": "proceed to choose_move/choose_switch if you accept"
+        if beats
+        else "shortlist is better; choose the top shortlist item",
+    }
+
+
 __all__ = [
     "CHOOSE_MOVE_TOOL",
     "CHOOSE_SWITCH_TOOL",
     "ESTIMATE_DAMAGE_TOOL",
+    "EVALUATE_CANDIDATE_TOOL",
     "EVALUATE_SWITCH_TOOL",
     "LOOKUP_TYPE_CHART_TOOL",
+    "PROPOSE_ALTERNATIVE_TOOL",
     "TOOLS",
     "ToolName",
     "estimate_damage_tool",
+    "evaluate_candidate_tool",
     "evaluate_switch_tool",
     "lookup_type_chart_tool",
+    "propose_alternative_tool",
 ]

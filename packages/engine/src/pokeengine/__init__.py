@@ -6,7 +6,7 @@ from pokeengine import events, format_validator, parser, player, runner
 from pokeengine.events import BattleResult, Event, EventKind
 from pokeengine.format_validator import validate_team
 from pokeengine.parser import parse_line, parse_stream
-from pokeengine.player import AgentPlayer, MoveChooser, battle_to_state_dict
+from pokeengine.player import AgentPlayer, MoveChooser, battle_to_state_dict, state_from_battle
 from pokeengine.runner import (
     DEFAULT_PORT,
     SHOWDOWN_REPO,
@@ -37,6 +37,7 @@ __all__ = [
     "runner",
     "showdown_server",
     "start_showdown",
+    "state_from_battle",
     "validate_team",
     "wait_for_battle",
 ]
