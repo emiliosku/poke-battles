@@ -190,6 +190,75 @@ class TestTeams:
         assert r.status_code == 201, r.text
         assert stub_validator.calls == []
 
+    def test_update_team(
+        self, authed_client: TestClient, stub_validator: _StubTeamValidator
+    ) -> None:
+        factory = authed_client.app.state.session_factory
+        with session_scope(factory) as session:
+            team = Team(
+                owner_id="github:u1",
+                name="Old team",
+                paste="Garchomp @ Choice Scarf\nAbility: Rough Skin\n- Earthquake",
+                format="gen9ou",
+                is_public=False,
+            )
+            session.add(team)
+            session.flush()
+            team_id = team.id
+
+        new_paste = "Gengar @ Life Orb\nAbility: Cursed Body\n- Shadow Ball"
+        r = authed_client.put(
+            f"/teams/{team_id}",
+            json={
+                "name": "Edited team",
+                "paste": new_paste,
+                "format": "gen9anythinggoes",
+                "is_public": True,
+            },
+        )
+
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["id"] == team_id
+        assert body["name"] == "Edited team"
+        assert body["paste"] == new_paste
+        assert body["format"] == "gen9anythinggoes"
+        assert body["is_public"] is True
+        assert body["pokemon_count"] == 1
+        assert stub_validator.calls == [(new_paste, "gen9anythinggoes")]
+
+    def test_update_requires_owner(self, authed_client: TestClient) -> None:
+        factory = authed_client.app.state.session_factory
+        with session_scope(factory) as session:
+            team = Team(
+                owner_id="github:other",
+                name="Other team",
+                paste="Garchomp @ Choice Scarf\nAbility: Rough Skin\n- Earthquake",
+                format="gen9ou",
+                is_public=False,
+            )
+            session.add(team)
+            session.flush()
+            team_id = team.id
+
+        r = authed_client.put(
+            f"/teams/{team_id}",
+            json={
+                "name": "Stolen team",
+                "paste": "Gengar @ Life Orb\nAbility: Cursed Body\n- Shadow Ball",
+                "format": "gen9ou",
+                "is_public": True,
+            },
+        )
+
+        assert r.status_code == 404
+
+        with session_scope(factory) as session:
+            team = session.get(Team, team_id)
+            assert team is not None
+            assert team.name == "Other team"
+            assert team.is_public is False
+
     def test_validate_route_returns_validator_result(
         self, authed_client: TestClient, stub_validator: _StubTeamValidator
     ) -> None:

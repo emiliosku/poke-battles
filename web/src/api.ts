@@ -277,6 +277,8 @@ export const api = {
     list: () => r<Team[]>("/teams"),
     create: (data: { name: string; paste: string; format?: string; is_public?: boolean }) =>
       r<Team>("/teams", { method: "POST", body: JSON.stringify(data) }),
+    update: (id: number, data: { name: string; paste: string; format?: string; is_public?: boolean }) =>
+      r<Team>(`/teams/${id}`, { method: "PUT", body: JSON.stringify(data) }),
     preview: (paste: string) =>
       r<TeamPreviewResponse>("/teams/preview", { method: "POST", body: JSON.stringify({ paste }) }),
     get: (id: number) => r<Team>(`/teams/${id}`),

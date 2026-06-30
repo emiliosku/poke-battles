@@ -21,6 +21,13 @@ class TeamCreate(BaseModel):
     is_public: bool = False
 
 
+class TeamUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+    paste: str = Field(min_length=1, description="Showdown paste format")
+    format: str | None = None
+    is_public: bool = False
+
+
 class TeamResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
@@ -264,6 +271,7 @@ __all__ = [
     "TeamPreviewRequest",
     "TeamPreviewResponse",
     "TeamResponse",
+    "TeamUpdate",
     "TeamValidateRequest",
     "TeamValidateResponse",
     "UserResponse",

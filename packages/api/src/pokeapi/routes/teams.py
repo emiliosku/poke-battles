@@ -13,6 +13,7 @@ from pokeapi.schemas import (
     TeamPreviewRequest,
     TeamPreviewResponse,
     TeamResponse,
+    TeamUpdate,
     TeamValidateRequest,
     TeamValidateResponse,
 )
@@ -125,6 +126,40 @@ async def get_team(team_id: int, request: Request) -> TeamResponse:
             user = require_current_user(request)
             if team.owner_id != user.id:
                 raise HTTPException(status_code=404, detail="Team not found")
+        return _team_to_response(team)
+
+
+@router.put("/{team_id}", response_model=TeamResponse)
+async def update_team(
+    team_id: int,
+    body: TeamUpdate,
+    request: Request,
+    user: User = Depends(require_current_user),
+) -> TeamResponse:
+    factory = request.app.state.session_factory
+    with session_scope(factory) as session:
+        team = session.get(Team, team_id)
+        if team is None or team.owner_id != user.id:
+            raise HTTPException(status_code=404, detail="Team not found")
+
+    try:
+        parse_team(body.paste)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid paste: {exc}") from exc
+    if body.format:
+        check = await get_team_validator(request).validate(body.paste, body.format)
+        if not check.ok:
+            raise HTTPException(status_code=400, detail=check.to_detail("Team")) from None
+
+    with session_scope(factory) as session:
+        team = session.get(Team, team_id)
+        if team is None or team.owner_id != user.id:
+            raise HTTPException(status_code=404, detail="Team not found")
+        team.name = body.name
+        team.paste = body.paste
+        team.format = body.format
+        team.is_public = body.is_public
+        session.flush()
         return _team_to_response(team)
 
 

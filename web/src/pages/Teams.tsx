@@ -148,6 +148,7 @@ function TeamCard({
   deleting,
   copied,
   onToggle,
+  onEdit,
   onDelete,
   onExport,
 }: {
@@ -156,6 +157,7 @@ function TeamCard({
   deleting: boolean;
   copied: boolean;
   onToggle: () => void;
+  onEdit: (team: Team) => void;
   onDelete: (team: Team) => Promise<void> | void;
   onExport: (team: Team) => Promise<void> | void;
 }) {
@@ -178,6 +180,18 @@ function TeamCard({
         <strong>{team.name}</strong>
         <span className="row" style={{ gap: 10 }}>
           <span className="muted">{expanded ? "Hide" : "Show"}</span>
+          <button
+            className="button secondary"
+            type="button"
+            disabled={deleting}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (deleting) return;
+              onEdit(team);
+            }}
+          >
+            Edit
+          </button>
           <button
             className="button secondary"
             type="button"
@@ -238,10 +252,12 @@ export default function Teams() {
   const [creating, setCreating] = useState(false);
   const [deletingTeamId, setDeletingTeamId] = useState<number | null>(null);
   const [copiedTeamId, setCopiedTeamId] = useState<number | null>(null);
+  const [editingTeamId, setEditingTeamId] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [expandedTeamId, setExpandedTeamId] = useState<number | null>(null);
   const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isEditing = editingTeamId !== null;
 
   const load = async () => {
     if (!user) return;
@@ -268,16 +284,50 @@ export default function Teams() {
     };
   }, []);
 
-  const create = async (e: FormEvent) => {
+  const resetForm = () => {
+    setEditingTeamId(null);
+    setName("");
+    setPaste("");
+    setFormat("gen9randombattle");
+    setIsPublic(false);
+  };
+
+  const toggleForm = () => {
+    if (createOpen) {
+      resetForm();
+      setCreateOpen(false);
+      return;
+    }
+    resetForm();
+    setError("");
+    setCreateOpen(true);
+  };
+
+  const edit = (team: Team) => {
+    setError("");
+    setEditingTeamId(team.id);
+    setName(team.name);
+    setPaste(team.paste);
+    setFormat(team.format || "gen9randombattle");
+    setIsPublic(team.is_public);
+    setExpandedTeamId(team.id);
+    setCreateOpen(true);
+  };
+
+  const save = async (e: FormEvent) => {
     e.preventDefault();
     if (creating) return;
+    const editingId = editingTeamId;
     setError("");
     setCreating(true);
     try {
-      await api.teams.create({ name, paste, format, is_public: isPublic });
-      setName("");
-      setPaste("");
-      setIsPublic(false);
+      if (editingId === null) {
+        await api.teams.create({ name, paste, format, is_public: isPublic });
+      } else {
+        await api.teams.update(editingId, { name, paste, format, is_public: isPublic });
+        setExpandedTeamId(editingId);
+      }
+      resetForm();
       await load();
       setCreateOpen(false);
     } catch (err) {
@@ -295,6 +345,7 @@ export default function Teams() {
     try {
       await api.teams.delete(team.id);
       setExpandedTeamId((current) => (current === team.id ? null : current));
+      if (editingTeamId === team.id) resetForm();
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -357,6 +408,7 @@ export default function Teams() {
               onToggle={() =>
                 setExpandedTeamId((current) => (current === team.id ? null : team.id))
               }
+              onEdit={edit}
               onDelete={del}
               onExport={exportTeam}
             />
@@ -370,15 +422,15 @@ export default function Teams() {
           className="collapsible-header"
           aria-expanded={createOpen}
           aria-controls="create-team-panel"
-          onClick={() => setCreateOpen((v) => !v)}
+          onClick={toggleForm}
         >
-          <span>Create team</span>
+          <span>{isEditing ? "Edit team" : "Create team"}</span>
           <span className="chevron" aria-hidden="true">›</span>
         </button>
         {createOpen && (
           <div id="create-team-panel" className="stack" style={{ marginTop: 12 }}>
             <div className="grid two">
-              <form className="card stack" onSubmit={create}>
+              <form className="card stack" onSubmit={save}>
                 <label className="field"><span>Name</span><input value={name} onChange={(e) => setName(e.target.value)} required disabled={creating} /></label>
                 <label className="field"><span>Format</span>
                   <select value={format} onChange={(e) => setFormat(e.target.value)} disabled={creating}>
@@ -388,11 +440,14 @@ export default function Teams() {
                 </label>
                 <label className="field"><span>Showdown paste</span><textarea rows={13} value={paste} onChange={(e) => setPaste(e.target.value)} required disabled={creating} /></label>
                 <label className="row"><input style={{ width: "auto" }} type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} disabled={creating} /> Public team</label>
-                <button className="button" type="submit" disabled={creating}>{creating ? "Creating..." : "Create team"}</button>
+                <div className="row">
+                  <button className="button" type="submit" disabled={creating}>{creating ? (isEditing ? "Saving..." : "Creating...") : (isEditing ? "Save changes" : "Create team")}</button>
+                  {isEditing && <button className="button ghost" type="button" disabled={creating} onClick={resetForm}>Cancel edit</button>}
+                </div>
               </form>
 
               <div className="card stack">
-                <h2>Paste preview</h2>
+                <h2>{isEditing ? "Edited paste preview" : "Paste preview"}</h2>
                 {!paste.trim() && <p>Paste a team to preview the party list.</p>}
                 {paste.trim() && preview.loading && <PastePreviewSkeleton count={Math.max(1, preview.pokemon?.length || 1)} />}
                 {paste.trim() && preview.error && (
