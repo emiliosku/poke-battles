@@ -12,12 +12,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from pokeapi.db import init_db, make_engine, make_session_factory
-from pokeapi.debug import MemoryLogHandler
 from pokeapi.orchestrator import Orchestrator
 from pokeapi.routes import (
     auth,
     battles,
-    debug,
     health,
     leaderboard,
     meta,
@@ -91,13 +89,6 @@ async def lifespan(app: FastAPI) -> Any:
     app.state.start_time = time.monotonic()
     team_validator_state: ShowdownTeamValidator | None = None
     app.state.team_validator = team_validator_state
-    log_handler = MemoryLogHandler(max_records=200)
-    log_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
-    # Attach only to the root logger; ``pokeapi`` / ``pokeengine`` /
-    # ``poke_env`` loggers propagate to it by default. Installing on
-    # both root and a child double-prints every record.
-    log_handler.install([logging.getLogger()])
-    app.state.log_handler = log_handler
     logger.info("pokeapi ready")
     warmup_task = asyncio.create_task(_warm_sprite_status_cache())
     try:
@@ -109,7 +100,6 @@ async def lifespan(app: FastAPI) -> Any:
             await validator.stop()
         await orchestrator.stop()
         bservice.stop()
-        log_handler.uninstall()
         engine.dispose()
 
 
@@ -139,7 +129,6 @@ def create_app() -> FastAPI:
     app.include_router(replays.router)
     app.include_router(sprites.router)
     app.include_router(ws.router)
-    app.include_router(debug.router)
 
     @app.get("/", response_model=HealthResponse, tags=["meta"])
     async def root() -> HealthResponse:
