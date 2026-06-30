@@ -113,9 +113,7 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         self._player = RLPlayer(
             self._obs_queue,
             self._action_queue,
-            account_configuration=AccountConfiguration(
-                f"RLAgent-{self._env_id}", ""
-            ),
+            account_configuration=AccountConfiguration(f"RLAgent-{self._env_id}", ""),
             server_configuration=server_config,
             battle_format=self._config.battle_format,
         )
@@ -176,9 +174,7 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         self._reward_tracker = RewardTracker(config=self._reward_config)
 
         # Start a new battle in background thread
-        self._thread = threading.Thread(
-            target=self._run_battle_background, daemon=True
-        )
+        self._thread = threading.Thread(target=self._run_battle_background, daemon=True)
         self._thread.start()
 
         # Wait for first observation from the player

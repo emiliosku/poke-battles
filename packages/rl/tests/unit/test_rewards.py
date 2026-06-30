@@ -21,14 +21,8 @@ def _make_battle(
     team_hp = team_hp or [1.0] * 6
     opp_hp = opp_hp or [1.0] * 6
 
-    team = {
-        f"mon{i}": _make_mon(hp=hp, fainted=(hp <= 0.0))
-        for i, hp in enumerate(team_hp)
-    }
-    opp_team = {
-        f"opp{i}": _make_mon(hp=hp, fainted=(hp <= 0.0))
-        for i, hp in enumerate(opp_hp)
-    }
+    team = {f"mon{i}": _make_mon(hp=hp, fainted=(hp <= 0.0)) for i, hp in enumerate(team_hp)}
+    opp_team = {f"opp{i}": _make_mon(hp=hp, fainted=(hp <= 0.0)) for i, hp in enumerate(opp_hp)}
     return SimpleNamespace(
         team=team,
         opponent_team=opp_team,
@@ -93,11 +87,7 @@ class TestRewardTracker:
             battle_finished=False,
             won=None,
         )
-        expected = (
-            config.hp_damage_reward * 1.0
-            + config.ko_reward * 1
-            + config.turn_penalty
-        )
+        expected = config.hp_damage_reward * 1.0 + config.ko_reward * 1 + config.turn_penalty
         assert abs(reward - expected) < 1e-7
 
     def test_own_faint_gives_penalty(self):
@@ -111,11 +101,7 @@ class TestRewardTracker:
             battle_finished=False,
             won=None,
         )
-        expected = (
-            config.hp_loss_penalty * 1.0
-            + config.faint_reward * 1
-            + config.turn_penalty
-        )
+        expected = config.hp_loss_penalty * 1.0 + config.faint_reward * 1 + config.turn_penalty
         assert abs(reward - expected) < 1e-7
 
     def test_win_terminal_reward(self):
@@ -173,9 +159,7 @@ class TestRewardTracker:
         assert r1 > 0  # dealt damage
         # r2: dealt 1.0 damage, took 0.2 damage
         expected_r2 = (
-            config.hp_damage_reward * 1.0
-            + config.hp_loss_penalty * 0.2
-            + config.turn_penalty
+            config.hp_damage_reward * 1.0 + config.hp_loss_penalty * 0.2 + config.turn_penalty
         )
         assert abs(r2 - expected_r2) < 1e-7
 

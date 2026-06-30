@@ -140,20 +140,14 @@ def compute_reward(
     opp_team: dict[str, object] = getattr(battle, "opponent_team", {}) or {}
 
     player_hp_sum = sum(
-        float(getattr(mon, "current_hp_fraction", 0.0) or 0.0)
-        for mon in team.values()
+        float(getattr(mon, "current_hp_fraction", 0.0) or 0.0) for mon in team.values()
     )
     opponent_hp_sum = sum(
-        float(getattr(mon, "current_hp_fraction", 0.0) or 0.0)
-        for mon in opp_team.values()
+        float(getattr(mon, "current_hp_fraction", 0.0) or 0.0) for mon in opp_team.values()
     )
 
-    player_fainted = sum(
-        1 for mon in team.values() if getattr(mon, "fainted", False)
-    )
-    opponent_fainted = sum(
-        1 for mon in opp_team.values() if getattr(mon, "fainted", False)
-    )
+    player_fainted = sum(1 for mon in team.values() if getattr(mon, "fainted", False))
+    opponent_fainted = sum(1 for mon in opp_team.values() if getattr(mon, "fainted", False))
 
     # Check if battle is finished
     battle_finished = bool(getattr(battle, "finished", False))

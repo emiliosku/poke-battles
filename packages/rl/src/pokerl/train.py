@@ -81,7 +81,6 @@ def train(config: TrainConfig) -> None:
         EvalCallback,
     )
 
-
     # Create output directories
     save_path = Path(config.save_dir)
     log_path = Path(config.log_dir)
@@ -169,44 +168,64 @@ def main() -> None:
         description="Train a PPO agent for Pokémon Showdown battles",
     )
     parser.add_argument(
-        "--timesteps", type=int, default=500_000,
+        "--timesteps",
+        type=int,
+        default=500_000,
         help="Total training timesteps (default: 500000)",
     )
     parser.add_argument(
-        "--format", type=str, default="gen9randombattle",
+        "--format",
+        type=str,
+        default="gen9randombattle",
         help="Battle format (default: gen9randombattle)",
     )
     parser.add_argument(
-        "--opponent", type=str, default="random",
+        "--opponent",
+        type=str,
+        default="random",
         choices=["random", "heuristic", "self-play"],
         help="Opponent type (default: random)",
     )
     parser.add_argument(
-        "--lr", type=float, default=3e-4,
+        "--lr",
+        type=float,
+        default=3e-4,
         help="Learning rate (default: 3e-4)",
     )
     parser.add_argument(
-        "--batch-size", type=int, default=256,
+        "--batch-size",
+        type=int,
+        default=256,
         help="Batch size (default: 256)",
     )
     parser.add_argument(
-        "--save-dir", type=str, default="models/rl",
+        "--save-dir",
+        type=str,
+        default="models/rl",
         help="Directory to save models (default: models/rl)",
     )
     parser.add_argument(
-        "--server-host", type=str, default="localhost",
+        "--server-host",
+        type=str,
+        default="localhost",
         help="Showdown server host (default: localhost)",
     )
     parser.add_argument(
-        "--server-port", type=int, default=8000,
+        "--server-port",
+        type=int,
+        default=8000,
         help="Showdown server port (default: 8000)",
     )
     parser.add_argument(
-        "--net-arch", type=str, default="256,256",
+        "--net-arch",
+        type=str,
+        default="256,256",
         help="Network layer sizes, comma-separated (default: 256,256)",
     )
     parser.add_argument(
-        "--verbose", "-v", action="store_true",
+        "--verbose",
+        "-v",
+        action="store_true",
         help="Enable debug logging",
     )
     args = parser.parse_args()

@@ -34,15 +34,38 @@ import numpy.typing as npt
 # ---------------------------------------------------------------------------
 
 TYPES: list[str] = [
-    "normal", "fire", "water", "electric", "grass", "ice",
-    "fighting", "poison", "ground", "flying", "psychic", "bug",
-    "rock", "ghost", "dragon", "dark", "steel", "fairy", "typeless",
+    "normal",
+    "fire",
+    "water",
+    "electric",
+    "grass",
+    "ice",
+    "fighting",
+    "poison",
+    "ground",
+    "flying",
+    "psychic",
+    "bug",
+    "rock",
+    "ghost",
+    "dragon",
+    "dark",
+    "steel",
+    "fairy",
+    "typeless",
 ]
 NUM_TYPES: int = len(TYPES)
 _TYPE_INDEX: dict[str, int] = {t: i for i, t in enumerate(TYPES)}
 
 STATUSES: list[str] = [
-    "healthy", "brn", "frz", "par", "psn", "tox", "slp", "fnt",
+    "healthy",
+    "brn",
+    "frz",
+    "par",
+    "psn",
+    "tox",
+    "slp",
+    "fnt",
 ]
 NUM_STATUSES: int = len(STATUSES)
 _STATUS_INDEX: dict[str, int] = {s: i for i, s in enumerate(STATUSES)}
