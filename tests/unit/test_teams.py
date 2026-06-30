@@ -408,10 +408,9 @@ class TestSpriteSlug:
             pytest.skip("set POKE_BATTLES_RUN_SPRITE_PROBE=1 to hit the live CDN")
 
         for slug in set(overrides.values()):
-            assert any(
-                _probe(f"{CDN}/{folder}/{slug}.{ext}")
-                for folder, ext in FOLDER_EXT
-            ), f"{slug!r} 404s in every (folder, ext) — override points at a dead slug"
+            assert any(_probe(f"{CDN}/{folder}/{slug}.{ext}") for folder, ext in FOLDER_EXT), (
+                f"{slug!r} 404s in every (folder, ext) — override points at a dead slug"
+            )
 
 
 class TestNormalizeTeamPasteForShowdown:
