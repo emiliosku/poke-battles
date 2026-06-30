@@ -14,6 +14,46 @@ function ResultTable({ sim }: { sim: SimulationResponse }) {
   return <pre className="notice">{JSON.stringify(sim.results_json, null, 2)}</pre>;
 }
 
+function formatEta(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "";
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  if (m < 60) return `${m}m ${s.toString().padStart(2, "0")}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${(m % 60).toString().padStart(2, "0")}m`;
+}
+
+function ProgressPanel({ sim }: { sim: SimulationResponse }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const progress = sim.progress;
+  if (!progress) return null;
+  const pct = progress.n_battles > 0 ? Math.min(100, (progress.battles_done / progress.n_battles) * 100) : 0;
+  const startedAt = new Date(sim.created_at).getTime();
+  const elapsedSec = Math.max(0.001, (now - startedAt) / 1000);
+  const rate = progress.battles_done / elapsedSec;
+  const remaining = rate > 0 ? (progress.n_battles - progress.battles_done) / rate : null;
+  const etaText = remaining !== null ? formatEta(remaining) : "";
+
+  return (
+    <div className="stack">
+      <div className="progress-track" role="progressbar" aria-valuenow={progress.battles_done} aria-valuemin={0} aria-valuemax={progress.n_battles}>
+        <div className="progress-fill" style={{ width: `${pct}%` }} />
+      </div>
+      <div className="progress-meta">
+        <span>Battle {progress.battles_done} / {progress.n_battles}</span>
+        <span>Wins {progress.wins} · Losses {progress.losses} · Draws {progress.draws}</span>
+        <span>{etaText ? `ETA ${etaText}` : "Calculating ETA…"}</span>
+      </div>
+    </div>
+  );
+}
+
 export default function Simulations() {
   const { user } = useAuth();
   const [sim, setSim] = useState<SimulationResponse | null>(null);
@@ -120,7 +160,7 @@ export default function Simulations() {
         </form>
         <div className="card stack"><h2>Lookup</h2><div className="row"><input placeholder="Simulation ID" value={simId} onChange={(e) => setSimId(e.target.value)} /><button className="button secondary" type="button" onClick={() => void lookup()}>Lookup</button></div><h2>Recent</h2>{history.map((item) => <button className="notice" type="button" key={item.id} onClick={() => { setSimId(item.id); setSim(item); }}>{item.id} · {item.mode} · {item.status}</button>)}</div>
       </section>
-      {sim && <section className="card stack" style={{ marginTop: 16 }}><div className="row"><h2>Simulation {sim.id}</h2><span className="badge">{sim.status}</span></div><p>{sim.mode} · {sim.n_battles} battles</p>{sim.wins !== null && <p>Wins {sim.wins} · Losses {sim.losses} · Draws {sim.draws} · Win rate {sim.win_rate !== null ? `${(sim.win_rate * 100).toFixed(1)}%` : "?"}</p>}{sim.results_json && <ResultTable sim={sim} />}</section>}
+      {sim && <section className="card stack" style={{ marginTop: 16 }}><div className="row"><h2>Simulation {sim.id}</h2><span className="badge">{sim.status}</span></div><p>{sim.mode} · {sim.n_battles} battles</p>{sim.progress && <ProgressPanel sim={sim} />}{sim.wins !== null && <p>Wins {sim.wins} · Losses {sim.losses} · Draws {sim.draws} · Win rate {sim.win_rate !== null ? `${(sim.win_rate * 100).toFixed(1)}%` : "?"}</p>}{sim.results_json && <ResultTable sim={sim} />}</section>}
     </main>
   );
 }

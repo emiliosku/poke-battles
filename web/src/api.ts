@@ -54,6 +54,14 @@ export interface BattleResponse {
   finished_at: string | null;
 }
 
+export interface SimulationProgress {
+  battles_done: number;
+  n_battles: number;
+  wins: number;
+  losses: number;
+  draws: number;
+}
+
 export interface SimulationResponse {
   id: string;
   status: string;
@@ -67,6 +75,7 @@ export interface SimulationResponse {
   results_json: Record<string, unknown> | null;
   created_at: string;
   finished_at: string | null;
+  progress: SimulationProgress | null;
 }
 
 export interface RatingEntry {

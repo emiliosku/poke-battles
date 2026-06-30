@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pokeapi.auth import require_current_user
 from pokeapi.db import session_scope
 from pokeapi.db.models import Simulation, Team, User
-from pokeapi.schemas import SimulationCreate, SimulationResponse
+from pokeapi.schemas import SimulationCreate, SimulationProgress, SimulationResponse
 from pokeapi.state import get_team_validator
 
 logger = logging.getLogger(__name__)
@@ -68,7 +68,30 @@ async def create_simulation(
         raise HTTPException(status_code=400, detail=check_b.to_detail("Team B"))
 
     async def _run() -> None:
+        progress_map: dict[str, dict[str, int]] = getattr(
+            request.app.state, "simulation_progress", {}
+        )
+        request.app.state.simulation_progress = progress_map
+        progress_map[sim_id] = {
+            "battles_done": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+        }
+
+        def _on_battle_done(battles_done: int, wins: int, losses: int, draws: int) -> None:
+            progress_map[sim_id] = {
+                "battles_done": battles_done,
+                "wins": wins,
+                "losses": losses,
+                "draws": draws,
+            }
+
         try:
+            with session_scope(factory) as sess:
+                s = sess.get(Simulation, sim_id)
+                if s is not None:
+                    s.status = "running"
             result = await bservice.run_simulation(
                 mode=body.mode,
                 battle_format=body.format,
@@ -78,6 +101,7 @@ async def create_simulation(
                 team_b_paste=team_b_paste,
                 models=body.models,
                 n_battles=body.n_battles,
+                progress_callback=_on_battle_done,
             )
             with session_scope(factory) as sess:
                 s = sess.get(Simulation, sim_id)
@@ -95,6 +119,8 @@ async def create_simulation(
                 s = sess.get(Simulation, sim_id)
                 if s is not None:
                     s.status = "failed"
+        finally:
+            progress_map.pop(sim_id, None)
 
     tasks: set[asyncio.Task[None]] = getattr(request.app.state, "simulation_tasks", set())
     request.app.state.simulation_tasks = tasks
@@ -126,14 +152,24 @@ async def list_simulations(
 @router.get("/{sim_id}", response_model=SimulationResponse)
 async def get_simulation(sim_id: str, request: Request) -> SimulationResponse:
     factory = request.app.state.session_factory
+    progress_map: dict[str, dict[str, int]] = getattr(request.app.state, "simulation_progress", {})
     with session_scope(factory) as session:
         sim = session.get(Simulation, sim_id)
         if sim is None:
             raise HTTPException(status_code=404, detail="Simulation not found")
-        return _to_response(sim)
+        return _to_response(sim, progress_map.get(sim_id))
 
 
-def _to_response(s: Simulation) -> SimulationResponse:
+def _to_response(s: Simulation, progress: dict[str, int] | None = None) -> SimulationResponse:
+    progress_model: SimulationProgress | None = None
+    if progress is not None:
+        progress_model = SimulationProgress(
+            battles_done=progress["battles_done"],
+            n_battles=s.n_battles,
+            wins=progress["wins"],
+            losses=progress["losses"],
+            draws=progress["draws"],
+        )
     return SimulationResponse(
         id=s.id,
         status=s.status,
@@ -147,6 +183,7 @@ def _to_response(s: Simulation) -> SimulationResponse:
         results_json=s.results_json,
         created_at=s.created_at,
         finished_at=s.finished_at,
+        progress=progress_model,
     )
 
 

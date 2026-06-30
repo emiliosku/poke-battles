@@ -135,6 +135,14 @@ class SimulationCreate(BaseModel):
     n_battles: int = Field(default=20, ge=1, le=500)
 
 
+class SimulationProgress(BaseModel):
+    battles_done: int
+    n_battles: int
+    wins: int
+    losses: int
+    draws: int
+
+
 class SimulationResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: str
@@ -149,6 +157,7 @@ class SimulationResponse(BaseModel):
     results_json: dict[str, Any] | None = None
     created_at: datetime
     finished_at: datetime | None
+    progress: SimulationProgress | None = None
 
 
 class ReplayResponse(BaseModel):
@@ -247,6 +256,7 @@ __all__ = [
     "PracticeTeamPreviewSubmit",
     "ReplayResponse",
     "SimulationCreate",
+    "SimulationProgress",
     "SimulationResponse",
     "SpriteResultEntry",
     "SpriteStatusResponse",

@@ -392,12 +392,23 @@ class BattleService:
         team_b_paste: str | None = None,
         models: list[str] | None = None,
         n_battles: int = 20,
+        progress_callback: Callable[[int, int, int, int], None] | None = None,
     ) -> dict[str, Any]:
-        """Run a simulation and return aggregate results."""
+        """Run a simulation and return aggregate results.
+
+        ``progress_callback`` is invoked after each battle with
+        ``(battles_done, wins, losses, draws)``. For ``round_robin`` and
+        ``ladder`` modes, ``wins``/``losses`` are summed across all
+        models in the running tally.
+        """
         models = models or ["random"]
         wins = 0
         losses = 0
         draws = 0
+
+        def _emit(battles_done: int) -> None:
+            if progress_callback is not None:
+                progress_callback(battles_done, wins, losses, draws)
 
         if mode == "team_vs_team":
             if not models:
@@ -416,14 +427,15 @@ class BattleService:
                 )
                 if "error" in result:
                     draws += 1
-                    continue
-                side = result.get("winner_side")
-                if side == "p1":
-                    wins += 1
-                elif side == "p2":
-                    losses += 1
                 else:
-                    draws += 1
+                    side = result.get("winner_side")
+                    if side == "p1":
+                        wins += 1
+                    elif side == "p2":
+                        losses += 1
+                    else:
+                        draws += 1
+                _emit(wins + losses + draws)
             total = wins + losses + draws
             return {
                 "mode": mode,
@@ -452,14 +464,17 @@ class BattleService:
                         )
                         if "error" in result:
                             draws += 1
-                            continue
-                        side = result.get("winner_side")
-                        if side == "p1":
-                            m1_wins += 1
-                        elif side == "p2":
-                            m2_wins += 1
                         else:
-                            draws += 1
+                            side = result.get("winner_side")
+                            if side == "p1":
+                                m1_wins += 1
+                                wins += 1
+                            elif side == "p2":
+                                m2_wins += 1
+                                losses += 1
+                            else:
+                                draws += 1
+                        _emit(wins + losses + draws)
                     results_map.setdefault(m1, {"wins": 0, "losses": 0})
                     results_map.setdefault(m2, {"wins": 0, "losses": 0})
                     results_map[m1]["wins"] += m1_wins
@@ -494,17 +509,24 @@ class BattleService:
                 if "error" in result:
                     entries[m1]["draws"] += 1
                     entries[m2]["draws"] += 1
+                    draws += 2
                 else:
                     side = result.get("winner_side")
                     if side == "p1":
                         entries[m1]["wins"] += 1
                         entries[m2]["losses"] += 1
+                        wins += 1
+                        losses += 1
                     elif side == "p2":
                         entries[m2]["wins"] += 1
                         entries[m1]["losses"] += 1
+                        wins += 1
+                        losses += 1
                     else:
                         entries[m1]["draws"] += 1
                         entries[m2]["draws"] += 1
+                        draws += 2
+                _emit(wins + losses + draws)
             return {
                 "mode": mode,
                 "entries": entries,

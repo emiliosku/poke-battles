@@ -186,3 +186,84 @@ class TestRunSimulation:
         assert total_wins == total_losses
         assert entries["m1"]["draws"] == 0
         assert entries["m2"]["draws"] == 0
+
+    @pytest.mark.asyncio
+    async def test_team_vs_team_emits_progress_per_battle(self) -> None:
+        service = BattleService()
+        sides = iter(["p1", "p2", "p1", "tie", "p1"])
+
+        async def fake_run_battle(**_: object) -> dict[str, object | None]:
+            return {"winner": "sima1234a5678", "winner_side": next(sides)}
+
+        service.run_battle = fake_run_battle  # type: ignore[method-assign]
+
+        calls: list[tuple[int, int, int, int]] = []
+
+        def on_progress(battles_done: int, wins: int, losses: int, draws: int) -> None:
+            calls.append((battles_done, wins, losses, draws))
+
+        result = await service.run_simulation(
+            mode="team_vs_team",
+            battle_format="gen9randombattle",
+            models=["random", "random"],
+            n_battles=5,
+            progress_callback=on_progress,
+        )
+
+        # Called once per battle, with monotonically increasing
+        # battles_done.
+        assert len(calls) == 5
+        assert [c[0] for c in calls] == [1, 2, 3, 4, 5]
+        # Final callback matches the result tallies (3 wins, 1 loss, 1 draw).
+        assert calls[-1] == (5, 3, 1, 1)
+        assert result["wins"] == 3
+        assert result["losses"] == 1
+        assert result["draws"] == 1
+
+    @pytest.mark.asyncio
+    async def test_round_robin_emits_running_totals(self) -> None:
+        service = BattleService()
+        sides = iter(["p1", "p1", "p2", "p1"])
+
+        async def fake_run_battle(**_: object) -> dict[str, object | None]:
+            return {"winner": "rrm1xxa1234", "winner_side": next(sides)}
+
+        service.run_battle = fake_run_battle  # type: ignore[method-assign]
+
+        calls: list[tuple[int, int, int, int]] = []
+        await service.run_simulation(
+            mode="round_robin",
+            battle_format="gen9randombattle",
+            models=["m1", "m2"],
+            n_battles=2,
+            progress_callback=lambda done, wins, losses, draws: calls.append(
+                (done, wins, losses, draws)
+            ),
+        )
+
+        # round_robin runs n_battles per matchup, so 2 battles per
+        # matchup, 1 matchup (m1, m2) -> 2 calls.
+        assert len(calls) == 2
+        # After both battles: m1 won both (p1), so wins=2, losses=0.
+        assert calls[-1][0] == 2
+        assert calls[-1][1] == 2
+        assert calls[-1][2] == 0
+        assert calls[-1][3] == 0
+
+    @pytest.mark.asyncio
+    async def test_progress_callback_optional(self) -> None:
+        service = BattleService()
+
+        async def fake_run_battle(**_: object) -> dict[str, object | None]:
+            return {"winner": "sima1234a5678", "winner_side": "p1"}
+
+        service.run_battle = fake_run_battle  # type: ignore[method-assign]
+
+        # No progress_callback supplied should still complete normally.
+        result = await service.run_simulation(
+            mode="team_vs_team",
+            battle_format="gen9randombattle",
+            models=["random", "random"],
+            n_battles=3,
+        )
+        assert result["wins"] == 3
