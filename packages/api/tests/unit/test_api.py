@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 import pokeapi.settings as settings_module
 from pokeapi.auth import create_session
 from pokeapi.db import session_scope
-from pokeapi.db.models import Battle, User
+from pokeapi.db.models import Battle, Simulation, Team, User
 from pokeapi.main import create_app
 from pokeapi.services.team_validation import TeamValidationResult
 
@@ -265,6 +265,59 @@ class TestTeams:
     def test_get_missing(self, client: TestClient) -> None:
         r = client.get("/teams/9999")
         assert r.status_code == 404
+
+    def test_delete_clears_history_references(self, authed_client: TestClient) -> None:
+        factory = authed_client.app.state.session_factory
+        with session_scope(factory) as session:
+            team = Team(
+                owner_id="github:u1",
+                name="History team",
+                paste="Garchomp @ Choice Scarf\nAbility: Rough Skin\n- Earthquake",
+                format="gen9ou",
+                is_public=False,
+            )
+            session.add(team)
+            session.flush()
+            team_id = team.id
+            session.add(
+                Battle(
+                    id="battle-with-team",
+                    format="gen9ou",
+                    status="finished",
+                    player1_username="alice",
+                    player2_username="bob",
+                    model1="random",
+                    model2="random",
+                    owner_id="github:u1",
+                    team1_id=team_id,
+                    team2_id=team_id,
+                )
+            )
+            session.add(
+                Simulation(
+                    id="sim-with-team",
+                    owner_id="github:u1",
+                    mode="team_vs_team",
+                    format="gen9ou",
+                    team_a_id=team_id,
+                    team_b_id=team_id,
+                    n_battles=1,
+                )
+            )
+
+        r = authed_client.delete(f"/teams/{team_id}")
+        assert r.status_code == 204, r.text
+
+        with session_scope(factory) as session:
+            assert session.get(Team, team_id) is None
+            battle = session.get(Battle, "battle-with-team")
+            assert battle is not None
+            assert battle.team1_id is None
+            assert battle.team2_id is None
+            simulation = session.get(Simulation, "sim-with-team")
+            assert simulation is not None
+            assert simulation.team_a_id is None
+            assert simulation.team_b_id is None
 
 
 class TestBattles:

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from pokeapi.auth import require_current_user
 from pokeapi.db import session_scope
-from pokeapi.db.models import Team, User
+from pokeapi.db.models import Battle, Simulation, Team, User
 from pokeapi.schemas import (
     PokemonPreview,
     TeamCreate,
@@ -139,4 +139,16 @@ async def delete_team(
         team = session.get(Team, team_id)
         if team is None or team.owner_id != user.id:
             raise HTTPException(status_code=404, detail="Team not found")
+        session.query(Battle).filter(Battle.team1_id == team_id).update(
+            {Battle.team1_id: None}, synchronize_session=False
+        )
+        session.query(Battle).filter(Battle.team2_id == team_id).update(
+            {Battle.team2_id: None}, synchronize_session=False
+        )
+        session.query(Simulation).filter(Simulation.team_a_id == team_id).update(
+            {Simulation.team_a_id: None}, synchronize_session=False
+        )
+        session.query(Simulation).filter(Simulation.team_b_id == team_id).update(
+            {Simulation.team_b_id: None}, synchronize_session=False
+        )
         session.delete(team)

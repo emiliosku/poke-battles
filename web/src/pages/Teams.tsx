@@ -145,13 +145,19 @@ function usePreview(
 function TeamCard({
   team,
   expanded,
+  deleting,
+  copied,
   onToggle,
   onDelete,
+  onExport,
 }: {
   team: Team;
   expanded: boolean;
+  deleting: boolean;
+  copied: boolean;
   onToggle: () => void;
   onDelete: (team: Team) => Promise<void> | void;
+  onExport: (team: Team) => Promise<void> | void;
 }) {
   const preview = usePreview(team.paste, expanded);
   return (
@@ -173,14 +179,26 @@ function TeamCard({
         <span className="row" style={{ gap: 10 }}>
           <span className="muted">{expanded ? "Hide" : "Show"}</span>
           <button
-            className="button ghost"
+            className="button secondary"
             type="button"
             onClick={(e) => {
               e.stopPropagation();
+              void onExport(team);
+            }}
+          >
+            {copied ? "Copied" : "Export"}
+          </button>
+          <button
+            className="button ghost"
+            type="button"
+            disabled={deleting}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (deleting) return;
               void onDelete(team);
             }}
           >
-            Delete
+            {deleting ? "Deleting..." : "Delete"}
           </button>
         </span>
       </div>
@@ -217,9 +235,13 @@ export default function Teams() {
   const [format, setFormat] = useState("gen9randombattle");
   const [isPublic, setIsPublic] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [deletingTeamId, setDeletingTeamId] = useState<number | null>(null);
+  const [copiedTeamId, setCopiedTeamId] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [expandedTeamId, setExpandedTeamId] = useState<number | null>(null);
+  const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = async () => {
     if (!user) return;
@@ -240,9 +262,17 @@ export default function Teams() {
     void load();
   }, [user]);
 
+  useEffect(() => {
+    return () => {
+      if (copyResetRef.current) clearTimeout(copyResetRef.current);
+    };
+  }, []);
+
   const create = async (e: FormEvent) => {
     e.preventDefault();
+    if (creating) return;
     setError("");
+    setCreating(true);
     try {
       await api.teams.create({ name, paste, format, is_public: isPublic });
       setName("");
@@ -252,17 +282,37 @@ export default function Teams() {
       setCreateOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCreating(false);
     }
   };
 
   const del = async (team: Team) => {
+    if (deletingTeamId !== null) return;
     if (!window.confirm(`Delete team "${team.name}"?`)) return;
+    setError("");
+    setDeletingTeamId(team.id);
     try {
       await api.teams.delete(team.id);
       setExpandedTeamId((current) => (current === team.id ? null : current));
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDeletingTeamId(null);
+    }
+  };
+
+  const exportTeam = async (team: Team) => {
+    setError("");
+    try {
+      await navigator.clipboard.writeText(team.paste);
+      setCopiedTeamId(team.id);
+      if (copyResetRef.current) clearTimeout(copyResetRef.current);
+      copyResetRef.current = setTimeout(() => setCopiedTeamId(null), 1600);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(`Could not copy team paste: ${message}`);
     }
   };
 
@@ -288,6 +338,8 @@ export default function Teams() {
         <p>Paste a Pokémon Showdown team, validate it on the API, and reuse it in future battle modes.</p>
       </section>
 
+      {error && <div className="notice error" aria-live="polite" style={{ marginTop: 16 }}>{error}</div>}
+
       <section className="card stack" style={{ marginTop: 16 }}>
         <div className="row" style={{ justifyContent: "space-between" }}>
           <h2>Your teams</h2>
@@ -300,10 +352,13 @@ export default function Teams() {
               key={team.id}
               team={team}
               expanded={expandedTeamId === team.id}
+              deleting={deletingTeamId === team.id}
+              copied={copiedTeamId === team.id}
               onToggle={() =>
                 setExpandedTeamId((current) => (current === team.id ? null : team.id))
               }
               onDelete={del}
+              onExport={exportTeam}
             />
           ))}
         </div>
@@ -322,19 +377,18 @@ export default function Teams() {
         </button>
         {createOpen && (
           <div id="create-team-panel" className="stack" style={{ marginTop: 12 }}>
-            {error && <div className="notice error" aria-live="polite">{error}</div>}
             <div className="grid two">
               <form className="card stack" onSubmit={create}>
-                <label className="field"><span>Name</span><input value={name} onChange={(e) => setName(e.target.value)} required /></label>
+                <label className="field"><span>Name</span><input value={name} onChange={(e) => setName(e.target.value)} required disabled={creating} /></label>
                 <label className="field"><span>Format</span>
-                  <select value={format} onChange={(e) => setFormat(e.target.value)}>
+                  <select value={format} onChange={(e) => setFormat(e.target.value)} disabled={creating}>
                     {formats.length === 0 && <option value="gen9randombattle">Gen 9 Random Battle</option>}
                     {formats.map((fmt) => <option key={fmt.id} value={fmt.id}>{fmt.name}</option>)}
                   </select>
                 </label>
-                <label className="field"><span>Showdown paste</span><textarea rows={13} value={paste} onChange={(e) => setPaste(e.target.value)} required /></label>
-                <label className="row"><input style={{ width: "auto" }} type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} /> Public team</label>
-                <button className="button" type="submit">Create team</button>
+                <label className="field"><span>Showdown paste</span><textarea rows={13} value={paste} onChange={(e) => setPaste(e.target.value)} required disabled={creating} /></label>
+                <label className="row"><input style={{ width: "auto" }} type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} disabled={creating} /> Public team</label>
+                <button className="button" type="submit" disabled={creating}>{creating ? "Creating..." : "Create team"}</button>
               </form>
 
               <div className="card stack">
