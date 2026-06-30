@@ -620,10 +620,8 @@ th { color: var(--muted); font-size: 12px; letter-spacing: 0.08em; text-transfor
   background: rgba(255, 255, 255, 0.04);
   margin: 0 auto 8px;
   max-width: 900px;
-  height: 500px;
-  overflow: hidden;
   content-visibility: auto;
-  contain-intrinsic-size: 500px;
+  contain-intrinsic-size: 400px;
 }
 .sprite-card-head {
   display: flex;

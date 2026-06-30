@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { API_BASE } from "../api";
 import { cdnUrlForSlug } from "../spriteDebugUtil";
 
@@ -185,17 +185,25 @@ function PokemonCard({
 function VirtualizedGrid({
   items,
   renderItem,
-  rowHeight,
   overscan = 2,
+  defaultItemHeight = 400,
 }: {
   items: SpriteResult[];
   renderItem: (item: SpriteResult, index: number) => React.ReactNode;
-  rowHeight: number;
   overscan?: number;
+  defaultItemHeight?: number;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(800);
+  const [heightVersion, setHeightVersion] = useState(0);
+
+  // species_id -> measured pixel height. Cards report their size via
+  // the ref callback below; until they do we fall back to
+  // ``defaultItemHeight`` so the first paint still has a sensible
+  // scrollbar.
+  const heightMap = useRef(new Map<string, number>());
+  const observers = useRef(new Map<string, ResizeObserver>());
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -211,21 +219,82 @@ function VirtualizedGrid({
     };
   }, []);
 
-  const startIdx = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan);
-  const endIdx = Math.min(
-    items.length,
-    Math.ceil((scrollTop + viewportHeight) / rowHeight) + overscan,
-  );
+  useEffect(() => {
+    return () => {
+      observers.current.forEach((ro) => ro.disconnect());
+      observers.current.clear();
+    };
+  }, []);
+
+  const setItemRef = useCallback((id: string, el: HTMLElement | null) => {
+    const prev = observers.current.get(id);
+    if (prev) {
+      prev.disconnect();
+      observers.current.delete(id);
+    }
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const h = entry.contentRect.height;
+        if (heightMap.current.get(id) !== h) {
+          heightMap.current.set(id, h);
+          setHeightVersion((v) => v + 1);
+        }
+      }
+    });
+    ro.observe(el);
+    observers.current.set(id, ro);
+  }, []);
+
+  // Cumulative offsets in document order. ``offsets[i]`` is the y
+  // coordinate where item ``i`` begins; ``offsets[items.length]`` is the
+  // total content height used to size the scroll spacer.
+  const offsets = useMemo(() => {
+    const out = new Array<number>(items.length + 1);
+    out[0] = 0;
+    for (let i = 0; i < items.length; i += 1) {
+      const item = items[i] as SpriteResult;
+      const h = heightMap.current.get(item.species_id) ?? defaultItemHeight;
+      out[i + 1] = out[i]! + h;
+    }
+    return out;
+  }, [items, heightVersion, defaultItemHeight]);
+
+  const totalHeight = items.length > 0 ? offsets[items.length]! : 0;
+
+  // Binary-search for the first index whose bottom edge sits below
+  // ``scrollTop``. That index is the first item in the visible window.
+  const startIdx = useMemo(() => {
+    if (items.length === 0) return 0;
+    let lo = 0;
+    let hi = items.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (offsets[mid + 1]! <= scrollTop) lo = mid + 1;
+      else hi = mid;
+    }
+    return Math.max(0, lo - 1 - overscan);
+  }, [scrollTop, offsets, items.length, overscan]);
+
+  const endIdx = useMemo(() => {
+    const cutoff = scrollTop + viewportHeight;
+    let i = startIdx;
+    while (i < items.length && offsets[i]! < cutoff) i += 1;
+    return Math.min(items.length, i + overscan);
+  }, [startIdx, scrollTop, viewportHeight, offsets, items.length, overscan]);
+
   const visible = items.slice(startIdx, endIdx);
-  const totalHeight = items.length * rowHeight;
-  const offsetY = startIdx * rowHeight;
+  const visibleTop = offsets[startIdx] ?? 0;
 
   return (
     <div ref={scrollRef} className="sprite-grid-scroll" data-testid="sprite-grid">
       <div style={{ height: totalHeight, position: "relative" }}>
-        <div style={{ position: "absolute", top: offsetY, left: 0, right: 0 }}>
+        <div style={{ position: "absolute", top: visibleTop, left: 0, right: 0 }}>
           {visible.map((item, i) => (
-            <div key={item.species_id} style={{ minHeight: rowHeight }}>
+            <div
+              key={item.species_id}
+              ref={(el) => setItemRef(item.species_id, el)}
+            >
               {renderItem(item, startIdx + i)}
             </div>
           ))}
@@ -417,7 +486,6 @@ export default function SpriteDebug() {
           </div>
           <VirtualizedGrid
             items={filtered}
-            rowHeight={500}
             renderItem={(item) => (
               <PokemonCard result={item} onStatusChange={handleStatus} />
             )}
