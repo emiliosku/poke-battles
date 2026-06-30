@@ -186,7 +186,7 @@ function VirtualizedGrid({
   items,
   renderItem,
   rowHeight,
-  overscan = 4,
+  overscan = 2,
 }: {
   items: SpriteResult[];
   renderItem: (item: SpriteResult, index: number) => React.ReactNode;
@@ -417,7 +417,7 @@ export default function SpriteDebug() {
           </div>
           <VirtualizedGrid
             items={filtered}
-            rowHeight={320}
+            rowHeight={500}
             renderItem={(item) => (
               <PokemonCard result={item} onStatusChange={handleStatus} />
             )}
