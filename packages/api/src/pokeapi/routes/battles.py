@@ -174,6 +174,14 @@ def _update_ratings(sess: Any, job: BattleJob, winner: str) -> None:
         rd=r2.rd,
         vol=max(r2.vol, MIN_VOLATILITY),
     )
+    # TODO: latent Glicko-2 misattribution. ``winner`` is the sanitized
+    # Showdown account name (see ``BattleService.run_battle``) while
+    # ``job.player1`` is the raw input username; the comparison almost
+    # never matches in practice, so ``score_a`` is effectively always
+    # 0.0. The fix is to compare against the new ``result.winner_side``
+    # field (or to map ``winner`` back to the input name) — tracked as
+    # a follow-up so this change stays scoped to the simulation tie
+    # bug.
     score_a = 1.0 if winner == job.player1 else 0.0
     new_g1, new_g2 = rate_pair(g1, g2, score_a)
     r1.rating = new_g1.rating

@@ -193,10 +193,10 @@ class BattleService:
             if self._manager is not None:
                 await self._manager.broadcast_raw(bt, line)
 
+        a_name = _showdown_account_name(player1, suffix, "a")
+        b_name = _showdown_account_name(player2, suffix, "b")
         a = AgentPlayer(
-            account_configuration=AccountConfiguration(
-                _showdown_account_name(player1, suffix, "a"), None
-            ),
+            account_configuration=AccountConfiguration(a_name, None),
             server_configuration=server,
             battle_format=battle_format,
             max_concurrent_battles=1,
@@ -206,9 +206,7 @@ class BattleService:
             on_raw_line=_broadcast_raw,
         )
         b = AgentPlayer(
-            account_configuration=AccountConfiguration(
-                _showdown_account_name(player2, suffix, "b"), None
-            ),
+            account_configuration=AccountConfiguration(b_name, None),
             server_configuration=server,
             battle_format=battle_format,
             max_concurrent_battles=1,
@@ -228,9 +226,16 @@ class BattleService:
             return {"error": "battle did not produce a result", "duration_s": duration}
         events = a.events_for(bid)
         winner = a._battle_winners.get(bid) or _winner_from_events(events)
+        if winner == a_name:
+            winner_side = "p1"
+        elif winner == b_name:
+            winner_side = "p2"
+        else:
+            winner_side = "tie"
         return {
             "battle_id": bid,
             "winner": winner,
+            "winner_side": winner_side,
             "turns": a._battle_turns.get(bid, 0),
             "duration_s": duration,
             "format": battle_format,
@@ -412,10 +417,10 @@ class BattleService:
                 if "error" in result:
                     draws += 1
                     continue
-                winner = str(result.get("winner") or "")
-                if winner.startswith("sim-a"):
+                side = result.get("winner_side")
+                if side == "p1":
                     wins += 1
-                elif winner.startswith("sim-b"):
+                elif side == "p2":
                     losses += 1
                 else:
                     draws += 1
@@ -448,10 +453,10 @@ class BattleService:
                         if "error" in result:
                             draws += 1
                             continue
-                        winner = str(result.get("winner") or "")
-                        if winner.startswith(f"rr-{m1}"):
+                        side = result.get("winner_side")
+                        if side == "p1":
                             m1_wins += 1
-                        elif winner.startswith(f"rr-{m2}"):
+                        elif side == "p2":
                             m2_wins += 1
                         else:
                             draws += 1
@@ -490,11 +495,11 @@ class BattleService:
                     entries[m1]["draws"] += 1
                     entries[m2]["draws"] += 1
                 else:
-                    w = str(result.get("winner") or "")
-                    if w.startswith(f"ladder-{m1}"):
+                    side = result.get("winner_side")
+                    if side == "p1":
                         entries[m1]["wins"] += 1
                         entries[m2]["losses"] += 1
-                    elif w.startswith(f"ladder-{m2}"):
+                    elif side == "p2":
                         entries[m2]["wins"] += 1
                         entries[m1]["losses"] += 1
                     else:
