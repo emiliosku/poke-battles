@@ -206,7 +206,7 @@ class TestTeams:
             session.flush()
             team_id = team.id
 
-        new_paste = "Gengar @ Life Orb\nAbility: Cursed Body\n- Shadow Ball"
+        new_paste = "Gengar @ Life Orb\nAbility: Cursed Body\nTimid Nature\n- Shadow Ball"
         r = authed_client.put(
             f"/teams/{team_id}",
             json={
@@ -245,7 +245,7 @@ class TestTeams:
             f"/teams/{team_id}",
             json={
                 "name": "Stolen team",
-                "paste": "Gengar @ Life Orb\nAbility: Cursed Body\n- Shadow Ball",
+                "paste": "Gengar @ Life Orb\nAbility: Cursed Body\nTimid Nature\n- Shadow Ball",
                 "format": "gen9ou",
                 "is_public": True,
             },
