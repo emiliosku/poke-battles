@@ -218,8 +218,10 @@ def _normalize_species_id(species: str) -> str:
 #   games: Galarian Farfetch'd is the evolution Sirfetch'd, so its
 #   slug is just ``sirfetchd``; Galarian Mr. Mime shares ``mrmime``'s
 #   art.
-# * Oricorio's Pom-Pom form uses the Hawaiian bird name
-#   ``oricorio-pau``, not ``oricorio-pompom``.
+# * Oricorio's Pom-Pom form has the second word concatenated on the CDN
+#   (``oricorio-pompom``, not ``oricorio-pom-pom``). The Hawaiian name
+#   ``Pa'u`` belongs to the *Psychic* form's own slug (``oricorio-pau``)
+#   and is unrelated to Pom-Pom.
 # * Ogerpon's Tera-typed masks drop the ``-tera`` suffix on the CDN.
 # * Tauros's three Paldean breeds share a single ``tauros-paldea`` sprite.
 #
@@ -238,7 +240,7 @@ _CDN_SLUG_OVERRIDES: dict[str, str] = {
     "ogerpon-hearthflame-tera": "ogerpon-hearthflame",
     "ogerpon-teal-tera": "ogerpon-teal",
     "ogerpon-wellspring-tera": "ogerpon-wellspring",
-    "oricorio-pom-pom": "oricorio-pau",
+    "oricorio-pom-pom": "oricorio-pompom",
     "pichu-spiky-eared": "pichu-spikyeared",
     "pikachu-rock-star": "pikachu-rockstar",
     "toxtricity-low-key": "toxtricity-lowkey",

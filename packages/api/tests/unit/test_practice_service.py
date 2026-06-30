@@ -272,8 +272,10 @@ class TestPokemonPayload:
             status=None,
         )
         payload = _pokemon_payload(mon)
-        # Oricorio-Pom-Pom's CDN slug is `oricorio-pau` (Hawaiian name).
-        assert payload["sprite_id"] == "oricorio-pau"
+        # Oricorio-Pom-Pom's CDN slug concatenates the form name
+        # (``oricorio-pompom``). ``oricorio-pau`` is the *Psychic* form's
+        # own slug and must not be reused here.
+        assert payload["sprite_id"] == "oricorio-pompom"
 
     def test_team_member_payload_includes_sprite_id(self) -> None:
         mon = SimpleNamespace(

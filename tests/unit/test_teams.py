@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from pokeapi.routes.teams import _pokemon_to_preview
+from pokecore.sprite_status import CDN, FOLDER_EXT, _probe
 from pokecore.teams import (
     EVSpread,
     IVSpread,
@@ -372,7 +375,7 @@ class TestSpriteSlug:
             "Ogerpon-Hearthflame-Tera": "ogerpon-hearthflame",
             "Ogerpon-Teal-Tera": "ogerpon-teal",
             "Ogerpon-Wellspring-Tera": "ogerpon-wellspring",
-            "Oricorio-Pom-Pom": "oricorio-pau",
+            "Oricorio-Pom-Pom": "oricorio-pompom",
             "Pichu-Spiky-eared": "pichu-spikyeared",
             "Pikachu-Rock-Star": "pikachu-rockstar",
             "Toxtricity-Low-Key": "toxtricity-lowkey",
@@ -387,6 +390,28 @@ class TestSpriteSlug:
             assert sprite_id(species) == expected, (
                 f"{species}: expected {expected!r}, got {sprite_id(species)!r}"
             )
+
+        # Live CDN guard: every override value must resolve to a real
+        # sprite on at least one (folder, ext) combination. Catches
+        # overrides that point at a slug Showdown has since dropped or
+        # renamed, and the dead-slug half of the original oricorio-pom-pom
+        # bug. It does NOT catch the "wrong species' slug" half of that
+        # bug — ``oricorio-pau`` 200s on the CDN, so the original
+        # override would have passed this probe while still rendering
+        # the Psychic form's art for the Electric form. That class of
+        # error still relies on the human-curated ``overrides`` dict
+        # above and the focused per-form tests in
+        # test_practice_service. Gated on POKE_BATTLES_RUN_SPRITE_PROBE=1
+        # to keep default CI offline; mirrors the live-probe gate on
+        # test_sprite_status_reports_slug_results in the api tests.
+        if os.environ.get("POKE_BATTLES_RUN_SPRITE_PROBE") != "1":
+            pytest.skip("set POKE_BATTLES_RUN_SPRITE_PROBE=1 to hit the live CDN")
+
+        for slug in set(overrides.values()):
+            assert any(
+                _probe(f"{CDN}/{folder}/{slug}.{ext}")
+                for folder, ext in FOLDER_EXT
+            ), f"{slug!r} 404s in every (folder, ext) — override points at a dead slug"
 
 
 class TestNormalizeTeamPasteForShowdown:
