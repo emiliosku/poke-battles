@@ -46,6 +46,67 @@ class TestBuildChooser:
         assert chooser is not _random_chooser
         assert callable(chooser)
 
+    def test_model_name_rl_returns_callable(self) -> None:
+        chooser = build_chooser("rl", None)
+        assert chooser is not _random_chooser
+        assert callable(chooser)
+
+    def test_mode_rl_via_config_returns_callable(self) -> None:
+        from pokellm.config import AgentConfig
+
+        cfg = AgentConfig(
+            name="rl",
+            provider="rl",
+            model_id="pokerl/ppo/v1",
+            tier=Tier.LOCAL,
+            mode="rl",
+        )
+        chooser = build_chooser("rl", cfg)
+        assert callable(chooser)
+        assert chooser is not _random_chooser
+
+
+class TestBuildRlChooser:
+    def test_unset_model_path_falls_back_to_random(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from pokeapi.services import _build_rl_chooser, agent_stats
+
+        monkeypatch.delenv("POKERL_MODEL_PATH", raising=False)
+        chooser = _build_rl_chooser("rl")
+
+        class _Player:
+            def choose_random_move(self, battle: object) -> str:
+                return "random"
+
+        result = _Player.__call__  # type: ignore[attr-defined]
+        del result  # silence linter
+
+        import asyncio
+
+        chosen = asyncio.run(chooser(_Player(), object()))  # type: ignore[arg-type]
+        assert chosen == "random"
+        assert agent_stats["rl"]["rl_calls"] == 1
+        assert agent_stats["rl"]["fallback_random"] == 1
+
+    def test_missing_model_file_falls_back_to_random(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        from pokeapi.services import _build_rl_chooser, agent_stats
+
+        missing = tmp_path / "does_not_exist.zip"
+        monkeypatch.setenv("POKERL_MODEL_PATH", str(missing))
+
+        chooser = _build_rl_chooser("rl")
+
+        class _Player:
+            def choose_random_move(self, battle: object) -> str:
+                return "random"
+
+        import asyncio
+
+        chosen = asyncio.run(chooser(_Player(), object()))  # type: ignore[arg-type]
+        assert chosen == "random"
+        assert agent_stats["rl"]["fallback_random"] == 1
+
 
 class TestRunSimulation:
     def test_showdown_account_name_is_login_safe(self) -> None:

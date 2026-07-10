@@ -39,19 +39,20 @@ class AgentConfig:
     rate_limit_rpm: int | None = None
     daily_token_cap: int | None = None
     mode: str = "hybrid"
+    model_path: str | None = None
     notes: str = ""
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.temperature <= 2.0:
             raise ValueError(f"temperature out of [0, 2]: {self.temperature}")
         # Mode=heuristic is a deterministic baseline; allow zero tokens/timeout.
-        if self.mode != "heuristic":
+        if self.mode not in {"heuristic", "rl"}:
             if self.max_tokens < 32:
                 raise ValueError(f"max_tokens too low: {self.max_tokens}")
             if self.timeout_s < 1.0:
                 raise ValueError(f"timeout_s too low: {self.timeout_s}")
-        if self.mode not in {"legacy", "hybrid", "heuristic"}:
-            raise ValueError(f"mode must be legacy/hybrid/heuristic, got {self.mode!r}")
+        if self.mode not in {"legacy", "hybrid", "heuristic", "rl"}:
+            raise ValueError(f"mode must be legacy/hybrid/heuristic/rl, got {self.mode!r}")
 
 
 _REQUIRED_KEYS = {"provider", "model_id"}
@@ -96,6 +97,7 @@ def load_models_yaml(path: str | Path) -> dict[str, AgentConfig]:
             rate_limit_rpm=int(entry["rate_limit_rpm"]) if "rate_limit_rpm" in entry else None,
             daily_token_cap=int(entry["daily_token_cap"]) if "daily_token_cap" in entry else None,
             mode=str(entry.get("mode", "hybrid")),
+            model_path=str(entry["model_path"]) if "model_path" in entry else None,
             notes=str(entry.get("notes", "")),
         )
     return out

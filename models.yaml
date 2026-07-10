@@ -97,3 +97,21 @@ heuristic:
   supports_tools: false
   mode: heuristic
   notes: "Pure deterministic heuristic baseline; no LLM calls"
+
+# ── Reinforcement-learning (trained policy) ──────────────────────
+# Uses the trained PPO model from POKERL_MODEL_PATH. Train a model
+# with `pokerl-train --timesteps 500000 --opponent random` first, then
+# set POKERL_MODEL_PATH=/abs/path/to/final_model.zip at request time.
+# If the env var is unset the chooser falls back to random moves and
+# logs an error, so the rest of the system stays healthy.
+
+rl:
+  provider: rl
+  model_id: pokerl/ppo/v1
+  tier: local
+  temperature: 0.0
+  max_tokens: 0
+  timeout_s: 0
+  supports_tools: false
+  mode: rl
+  notes: "Trained PPO policy; requires POKERL_MODEL_PATH to point to a .zip"

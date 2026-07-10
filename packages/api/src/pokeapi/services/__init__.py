@@ -227,6 +227,69 @@ def _resolve_order(player: AgentPlayer, order: _Order, battle: Any) -> Any:
     return player.choose_random_move(battle)
 
 
+def _build_rl_chooser(model_name: str) -> Callable[[AgentPlayer, Any], Any]:
+    """Construct an RL-trained policy chooser for ``AgentPlayer``.
+
+    Loads the trained MaskablePPO model from ``config.model_path`` (or the
+    ``POKERL_MODEL_PATH`` env var) and wraps it as an async ``MoveChooser``.
+
+    Falls back to a random move if the model fails to load or predict, but
+    logs the failure so an untrained deployment is visible.
+    """
+    import os
+
+    from pokerl.inference import make_rl_chooser
+
+    rl_stats: dict[str, int] = {
+        "rl_calls": 0,
+        "fallback_random": 0,
+    }
+    agent_stats[model_name] = rl_stats
+
+    model_path = os.environ.get("POKERL_MODEL_PATH")
+    if not model_path:
+        logger.error(
+            "RL chooser %s requested but POKERL_MODEL_PATH is not set; "
+            "all calls will fall back to random. Train a model first with "
+            "`pokerl-train` and set POKERL_MODEL_PATH=/abs/path/to/final_model.zip`.",
+            model_name,
+        )
+
+        async def _unconfigured_rl_chooser(player: AgentPlayer, battle: Any) -> Any:
+            rl_stats["rl_calls"] += 1
+            rl_stats["fallback_random"] += 1
+            return player.choose_random_move(battle)
+
+        return _unconfigured_rl_chooser
+
+    try:
+        chooser = make_rl_chooser(model_path, deterministic=True)
+    except Exception:
+        logger.exception(
+            "RL chooser %s failed to load model from %s; falling back to random",
+            model_name,
+            model_path,
+        )
+
+        async def _broken_rl_chooser(player: AgentPlayer, battle: Any) -> Any:
+            rl_stats["rl_calls"] += 1
+            rl_stats["fallback_random"] += 1
+            return player.choose_random_move(battle)
+
+        return _broken_rl_chooser
+
+    async def _rl_wrapped_chooser(player: AgentPlayer, battle: Any) -> Any:
+        rl_stats["rl_calls"] += 1
+        try:
+            return await chooser(player, battle)
+        except Exception:
+            logger.exception("RL chooser %s failed; falling back to random", model_name)
+            rl_stats["fallback_random"] += 1
+            return player.choose_random_move(battle)
+
+    return _rl_wrapped_chooser
+
+
 def build_chooser(
     model_name: str,
     config: AgentConfig | None,
@@ -237,6 +300,8 @@ def build_chooser(
 
     - ``model_name == "heuristic"`` or ``config.mode == "heuristic"`` →
       deterministic heuristic baseline.
+    - ``model_name == "rl"`` or ``config.mode == "rl"`` → trained RL
+      policy from ``POKERL_MODEL_PATH`` / ``config.model_path``.
     - ``config is None`` or ``tier=mock`` → random.
     - ``config.mode == "legacy"`` → single-shot LLM (pre-Phase-4 behaviour).
     - ``config.mode == "hybrid"`` (default) → meta-reasoner over the
@@ -244,6 +309,8 @@ def build_chooser(
     """
     if model_name == "heuristic":
         return _heuristic_chooser
+    if model_name == "rl" or (config is not None and config.mode == "rl"):
+        return _build_rl_chooser(model_name)
     if config is None or config.tier.value == "mock":
         return _random_chooser
     if config.mode == "heuristic":
@@ -730,4 +797,4 @@ class BattleService:
             return JobResult(job_id=job.id, winner=None, turns=0, duration_s=0.0)
 
 
-__all__ = ["BattleService", "_random_chooser", "build_chooser"]
+__all__ = ["BattleService", "_build_rl_chooser", "_random_chooser", "build_chooser"]
