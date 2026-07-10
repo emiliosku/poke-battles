@@ -15,7 +15,7 @@ import argparse
 import logging
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from pokerl.config import TrainConfig
@@ -95,8 +95,15 @@ def train(config: TrainConfig) -> None:
 
     # Create environment with action masking wrapper
     def _make_wrapped_env(env_id: int = 0) -> ActionMasker:
+        from pokerl.env import PokemonBattleEnv
+
         env = make_env(config, env_id=env_id)
-        return ActionMasker(env, action_mask_fn=lambda e: e.action_masks())
+
+        def _mask(e: object) -> Any:
+            assert isinstance(e, PokemonBattleEnv)
+            return e.action_masks()
+
+        return ActionMasker(env, action_mask_fn=_mask)
 
     env = _make_wrapped_env(env_id=0)
 

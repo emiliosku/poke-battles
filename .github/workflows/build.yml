@@ -44,7 +44,7 @@ jobs:
       - name: Format check (ruff)
         run: uv run ruff format --check .
       - name: Typecheck (mypy strict)
-        run: uv run mypy packages/core/src packages/engine/src packages/llm/src packages/api/src
+        run: uv run mypy packages/core/src packages/engine/src packages/llm/src packages/api/src packages/eval/src packages/rl/src
       - name: Test (pytest + coverage)
         run: uv run pytest --cov=pokecore --cov=pokeengine --cov=pokellm --cov=pokeapi --cov-report=term --cov-report=xml --cov-report=html --junitxml=test-results.xml
       - name: Upload test results

@@ -85,3 +85,7 @@ packages/engine/client/
 server/
 client/
 server.log
+
+# Project: RL training artifacts
+logs/
+models/

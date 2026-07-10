@@ -20,12 +20,19 @@ import numpy as np
 import numpy.typing as npt
 from gymnasium import spaces
 from poke_env.player.player import Player
-from poke_env.player.random_player import RandomPlayer
 from poke_env.ps_client.account_configuration import AccountConfiguration
 from poke_env.ps_client.server_configuration import ServerConfiguration
 
+try:
+    from poke_env.player import RandomPlayer, SimpleHeuristicsPlayer
+except ImportError:  # pragma: no cover - older poke_env layout
+    from poke_env.player.random_player import RandomPlayer  # type: ignore[no-redef]
+    from poke_env.player.simple_heuristics_player import (  # type: ignore[no-redef]
+        SimpleHeuristicsPlayer,
+    )
+
 from pokerl.config import TrainConfig
-from pokerl.encoder import OBSERVATION_SIZE
+from pokerl.encoder import OBSERVATION_SIZE, encode_battle
 from pokerl.player import NUM_ACTIONS, RLPlayer
 from pokerl.rewards import RewardConfig, RewardTracker, compute_reward
 
@@ -124,16 +131,54 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         self._started = True
 
     def _make_opponent(self, server_config: ServerConfiguration) -> Player:
-        """Create the opponent player based on config."""
+        """Create the opponent player based on config.
+
+        Supported opponent types (set via ``config.opponent``):
+        - ``"random"`` — uniform-random move chooser.
+        - ``"heuristic"`` — poke-env's built-in ``SimpleHeuristicsPlayer``,
+          a deterministic hand-crafted baseline. This is a much stronger
+          opponent than random and is the recommended first step of the
+          Random → Heuristic → Self-play curriculum.
+        - ``"self-play"`` — same as ``"random"`` for now; the real self-play
+          loop (frozen opponent snapshot from the replay pool) lands in
+          a follow-up.
+        - any other string is treated as a path to a saved MaskablePPO
+          model (``.zip``) that gets loaded as the opponent policy.
+        """
         acct = AccountConfiguration(f"Opponent-{self._env_id}", "")
-        # For now, always use RandomPlayer. In the future, support
-        # heuristic and self-play opponents.
-        opponent: Player = RandomPlayer(
+        kind = self._config.opponent
+
+        if kind == "random" or kind == "self-play":
+            return RandomPlayer(
+                account_configuration=acct,
+                server_configuration=server_config,
+                battle_format=self._config.battle_format,
+            )
+        if kind == "heuristic":
+            return SimpleHeuristicsPlayer(
+                account_configuration=acct,
+                server_configuration=server_config,
+                battle_format=self._config.battle_format,
+            )
+        # Anything else: treat as a path to a trained opponent policy.
+        from pathlib import Path
+
+        from sb3_contrib import MaskablePPO
+
+        model_path = Path(kind)
+        if not model_path.exists():
+            raise FileNotFoundError(
+                f"Opponent model not found at {model_path}. Use 'random', "
+                f"'heuristic', 'self-play', or an absolute path to a .zip."
+            )
+        logger.info("Loading opponent policy from %s", model_path)
+        opponent_model = MaskablePPO.load(str(model_path))
+        return _LoadedPolicyOpponent(
             account_configuration=acct,
             server_configuration=server_config,
             battle_format=self._config.battle_format,
+            model=opponent_model,
         )
-        return opponent
 
     def _run_battle_background(self) -> None:
         """Run a single battle in background thread."""
@@ -272,3 +317,68 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
             f"HP={getattr(opp, 'current_hp_fraction', 0):.0%}",
         ]
         return "\n".join(lines)
+
+
+class _LoadedPolicyOpponent(Player):
+    """A poke-env player driven by a loaded MaskablePPO policy.
+
+    Used as an opponent in self-play or when comparing a freshly-trained
+    policy against a frozen snapshot of a previous run. Falls back to
+    a random move if the policy predict call raises.
+    """
+
+    def __init__(
+        self,
+        *,
+        account_configuration: AccountConfiguration,
+        server_configuration: ServerConfiguration,
+        battle_format: str,
+        model: Any,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            account_configuration=account_configuration,
+            server_configuration=server_configuration,
+            battle_format=battle_format,
+            **kwargs,
+        )
+        self._model = model
+
+    def choose_move(self, battle: Any) -> Any:
+        obs = encode_battle(battle)
+        mask = _battle_action_mask(battle)
+        try:
+            action, _ = self._model.predict(obs, action_masks=mask, deterministic=True)
+        except Exception:
+            logger.exception("Opponent policy predict failed; using random move")
+            return self.choose_random_move(battle)
+        action = int(action)
+        available_moves = battle.available_moves
+        available_switches = battle.available_switches
+        if action < 4 and action < len(available_moves):
+            return self.create_order(available_moves[action])
+        switch_idx = action - 4
+        if switch_idx < len(available_switches):
+            return self.create_order(available_switches[switch_idx])
+        if available_moves:
+            return self.create_order(available_moves[0])
+        if available_switches:
+            return self.create_order(available_switches[0])
+        return self.choose_random_move(battle)
+
+
+def _battle_action_mask(battle: Any) -> npt.NDArray[np.bool_]:
+    """Standalone action-mask builder (mirrors RLPlayer._compute_action_mask)."""
+    mask = np.zeros(NUM_ACTIONS, dtype=np.bool_)
+    available_moves = battle.available_moves
+    for i in range(min(len(available_moves), 4)):
+        mask[i] = True
+    available_switches = battle.available_switches
+    for i in range(min(len(available_switches), 5)):
+        mask[4 + i] = True
+    if not mask.any():
+        if available_moves:
+            mask[0] = True
+        elif available_switches:
+            mask[4] = True
+    return mask
