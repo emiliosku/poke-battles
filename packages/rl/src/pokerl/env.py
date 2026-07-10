@@ -188,9 +188,31 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         loop = asyncio.new_event_loop()
         self._loop = loop
 
+        async def _wait_for_login(player: Player, timeout: float = 30.0) -> None:
+            """Block until ``player.ps_client.logged_in`` is set.
+
+            poke-env 0.15's ``Player.challenge``/``accept_challenge`` assert
+            ``self.logged_in.is_set()``; without this wait a fast env reset
+            can race the WebSocket login handshake and the very first battle
+            of every episode explodes with ``AssertionError``.
+            """
+            try:
+                logged_in = player.ps_client.logged_in
+                await asyncio.wait_for(logged_in.wait(), timeout=timeout)
+            except TimeoutError:
+                logger.warning(
+                    "Timed out after %.1fs waiting for %s to log in",
+                    timeout,
+                    getattr(player, "username", "?"),
+                )
+
         async def _battle() -> None:
             assert self._player is not None
             assert self._opponent is not None
+            await asyncio.gather(
+                _wait_for_login(self._player),
+                _wait_for_login(self._opponent),
+            )
             await self._player.battle_against(self._opponent, n_battles=1)
 
         try:

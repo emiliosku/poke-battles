@@ -99,8 +99,10 @@ class RLPlayer(Player):
             # Graceful shutdown — pick random
             return self.choose_random_move(battle)
 
-        assert isinstance(action, int)
-        return self._action_to_order(action, battle)
+        # sb3's Discrete env.step passes a numpy int (np.int64) which is not
+        # a subclass of Python int. Cast defensively so the queue bridge
+        # works for both raw gym envs and sb3's VecEnv wrappers.
+        return self._action_to_order(int(action), battle)  # type: ignore[arg-type]
 
     def _wait_for_action(self) -> int | object:
         """Block until an action is available (called in executor)."""
