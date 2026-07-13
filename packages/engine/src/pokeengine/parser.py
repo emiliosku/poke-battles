@@ -296,6 +296,111 @@ def _sideend(args: list[str], turn: int) -> Event:
     return _e(EventKind.SIDE_CONDITION_END, turn, side=args[0], detail=args[1])
 
 
+def _source_from_annotations(annotations: list[str]) -> str | None:
+    for annotation in annotations:
+        if annotation.startswith("[of] "):
+            return annotation.removeprefix("[of] ")
+    return None
+
+
+def _pokemon_protocol_event(
+    kind: EventKind,
+    args: list[str],
+    turn: int,
+    *,
+    value_key: str | None = None,
+    extra_value_key: str | None = None,
+) -> Event:
+    if not args:
+        return _e(EventKind.MESSAGE, turn, detail=kind.value)
+    detail = args[1] if value_key is not None and len(args) > 1 else None
+    annotation_start = 2 if value_key is not None else 1
+    if extra_value_key is not None and len(args) > 2:
+        annotation_start = 3
+    annotations = args[annotation_start:]
+    source = _source_from_annotations(annotations)
+    raw: dict[str, Any] = {"target": _pokemon_ref(args[0])}
+    if value_key is not None and detail is not None:
+        raw[value_key] = detail
+    if extra_value_key is not None and len(args) > 2:
+        raw[extra_value_key] = args[2]
+    if source is not None:
+        raw["source"] = _pokemon_ref(source)
+    if annotations:
+        raw["annotations"] = annotations
+    return _e(kind, turn, target=args[0], source=source, detail=detail, raw=raw)
+
+
+def _item(args: list[str], turn: int) -> Event:
+    return _pokemon_protocol_event(EventKind.ITEM, args, turn, value_key="item")
+
+
+def _enditem(args: list[str], turn: int) -> Event:
+    return _pokemon_protocol_event(EventKind.END_ITEM, args, turn, value_key="item")
+
+
+def _ability(args: list[str], turn: int) -> Event:
+    return _pokemon_protocol_event(EventKind.ABILITY, args, turn, value_key="ability")
+
+
+def _endability(args: list[str], turn: int) -> Event:
+    return _pokemon_protocol_event(EventKind.END_ABILITY, args, turn)
+
+
+def _terastallize(args: list[str], turn: int) -> Event:
+    return _pokemon_protocol_event(EventKind.TERASTALLIZE, args, turn, value_key="type")
+
+
+def _dynamax(args: list[str], turn: int) -> Event:
+    return _pokemon_protocol_event(EventKind.DYNAMAX, args, turn)
+
+
+def _enddynamax(args: list[str], turn: int) -> Event:
+    return _pokemon_protocol_event(EventKind.END_DYNAMAX, args, turn)
+
+
+def _effectiveness(kind: EventKind, args: list[str], turn: int) -> Event:
+    return _pokemon_protocol_event(kind, args, turn)
+
+
+def _supereffective(args: list[str], turn: int) -> Event:
+    return _effectiveness(EventKind.SUPER_EFFECTIVE, args, turn)
+
+
+def _resisted(args: list[str], turn: int) -> Event:
+    return _effectiveness(EventKind.RESISTED, args, turn)
+
+
+def _immune(args: list[str], turn: int) -> Event:
+    return _effectiveness(EventKind.IMMUNE, args, turn)
+
+
+def _transform(args: list[str], turn: int) -> Event:
+    return _pokemon_protocol_event(EventKind.TRANSFORM, args, turn, value_key="species")
+
+
+def _mega(args: list[str], turn: int) -> Event:
+    return _pokemon_protocol_event(EventKind.MEGA, args, turn, value_key="item")
+
+
+def _primal(args: list[str], turn: int) -> Event:
+    return _pokemon_protocol_event(EventKind.PRIMAL, args, turn)
+
+
+def _burst(args: list[str], turn: int) -> Event:
+    return _pokemon_protocol_event(
+        EventKind.BURST,
+        args,
+        turn,
+        value_key="species",
+        extra_value_key="item",
+    )
+
+
+def _zmove(args: list[str], turn: int) -> Event:
+    return _pokemon_protocol_event(EventKind.ZMOVE, args, turn)
+
+
 def _win(args: list[str], turn: int) -> Event:
     return _e(EventKind.BATTLE_END, turn, detail=args[0] if args else None)
 
@@ -376,20 +481,38 @@ _DISPATCH: dict[str, Handler] = {
     "warning": _unknown,
     "message": _unknown,
     "crit": _no_op,
-    "supereffective": _no_op,
-    "resisted": _no_op,
-    "immune": _no_op,
-    "item": _no_op,
-    "enditem": _no_op,
-    "ability": _no_op,
-    "endability": _no_op,
-    "transform": _no_op,
-    "mega": _no_op,
-    "primal": _no_op,
-    "burst": _no_op,
-    "zmove": _no_op,
-    "dynamax": _no_op,
-    "terastallize": _no_op,
+    "supereffective": _supereffective,
+    "-supereffective": _supereffective,
+    "resisted": _resisted,
+    "-resisted": _resisted,
+    "immune": _immune,
+    "-immune": _immune,
+    "item": _item,
+    "-item": _item,
+    "enditem": _enditem,
+    "-enditem": _enditem,
+    "ability": _ability,
+    "-ability": _ability,
+    "endability": _endability,
+    "-endability": _endability,
+    "transform": _transform,
+    "-transform": _transform,
+    "mega": _mega,
+    "-mega": _mega,
+    "primal": _primal,
+    "-primal": _primal,
+    "burst": _burst,
+    "-burst": _burst,
+    "zmove": _zmove,
+    "-zmove": _zmove,
+    "zpower": _zmove,
+    "-zpower": _zmove,
+    "dynamax": _dynamax,
+    "-dynamax": _dynamax,
+    "enddynamax": _enddynamax,
+    "-enddynamax": _enddynamax,
+    "terastallize": _terastallize,
+    "-terastallize": _terastallize,
 }
 
 

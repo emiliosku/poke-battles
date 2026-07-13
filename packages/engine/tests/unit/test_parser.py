@@ -114,6 +114,88 @@ class TestParseLine:
         assert ev.side == "p1: Alice"
         assert ev.detail == "Stealth Rock"
 
+    def test_item_reveal_with_explicit_source(self) -> None:
+        ev = parse_line("|-item|p1a: Pikachu|Light Ball|[from] ability: Pickup|[of] p2a: Meowth")
+        assert ev is not None
+        assert ev.kind == EventKind.ITEM
+        assert ev.target == "p1a: Pikachu"
+        assert ev.source == "p2a: Meowth"
+        assert ev.detail == "Light Ball"
+        assert ev.raw["target"]["species_id"] == "pikachu"
+        assert ev.raw["source"]["species_id"] == "meowth"
+        assert ev.raw["annotations"] == ["[from] ability: Pickup", "[of] p2a: Meowth"]
+
+    def test_item_removal(self) -> None:
+        ev = parse_line("|-enditem|p1a: Pikachu|Sitrus Berry|[eat]")
+        assert ev is not None
+        assert ev.kind == EventKind.END_ITEM
+        assert ev.target == "p1a: Pikachu"
+        assert ev.detail == "Sitrus Berry"
+        assert ev.raw["item"] == "Sitrus Berry"
+        assert ev.raw["annotations"] == ["[eat]"]
+
+    def test_ability_reveal_and_end(self) -> None:
+        reveal = parse_line("|-ability|p1a: Gyarados|Intimidate")
+        end = parse_line("|-endability|p1a: Slaking|[from] move: Gastro Acid")
+        assert reveal is not None
+        assert end is not None
+        assert reveal.kind == EventKind.ABILITY
+        assert reveal.detail == "Intimidate"
+        assert end.kind == EventKind.END_ABILITY
+        assert end.detail is None
+        assert end.raw["annotations"] == ["[from] move: Gastro Acid"]
+
+    def test_tera_and_dynamax_events(self) -> None:
+        tera = parse_line("|-terastallize|p1a: Charizard|Fire")
+        dynamax = parse_line("|-dynamax|p1a: Charizard")
+        end_dynamax = parse_line("|-enddynamax|p1a: Charizard")
+        assert tera is not None
+        assert dynamax is not None
+        assert end_dynamax is not None
+        assert tera.kind == EventKind.TERASTALLIZE
+        assert tera.detail == "Fire"
+        assert tera.raw["type"] == "Fire"
+        assert dynamax.kind == EventKind.DYNAMAX
+        assert dynamax.target == "p1a: Charizard"
+        assert end_dynamax.kind == EventKind.END_DYNAMAX
+
+    def test_effectiveness_events(self) -> None:
+        super_effective = parse_line("|-supereffective|p2a: Venusaur")
+        resisted = parse_line("|-resisted|p2a: Venusaur")
+        immune = parse_line("|-immune|p2a: Venusaur|[from] ability: Levitate")
+        assert super_effective is not None
+        assert resisted is not None
+        assert immune is not None
+        assert super_effective.kind == EventKind.SUPER_EFFECTIVE
+        assert resisted.kind == EventKind.RESISTED
+        assert immune.kind == EventKind.IMMUNE
+        assert immune.raw["annotations"] == ["[from] ability: Levitate"]
+
+    def test_form_change_events(self) -> None:
+        transform = parse_line("|-transform|p1a: Ditto|Mew|[from] move: Transform")
+        mega = parse_line("|-mega|p1a: Charizard|Charizardite X")
+        primal = parse_line("|-primal|p1a: Kyogre")
+        burst = parse_line("|-burst|p1a: Necrozma|Necrozma-Ultra|Ultranecrozium Z")
+        zmove = parse_line("|-zpower|p1a: Pikachu")
+        assert transform is not None
+        assert mega is not None
+        assert primal is not None
+        assert burst is not None
+        assert zmove is not None
+        assert transform.kind == EventKind.TRANSFORM
+        assert transform.source is None
+        assert transform.detail == "Mew"
+        assert transform.raw["species"] == "Mew"
+        assert mega.kind == EventKind.MEGA
+        assert mega.detail == "Charizardite X"
+        assert mega.raw["item"] == "Charizardite X"
+        assert primal.kind == EventKind.PRIMAL
+        assert burst.kind == EventKind.BURST
+        assert burst.detail == "Necrozma-Ultra"
+        assert burst.raw["species"] == "Necrozma-Ultra"
+        assert burst.raw["item"] == "Ultranecrozium Z"
+        assert zmove.kind == EventKind.ZMOVE
+
     def test_win(self) -> None:
         ev = parse_line("|win|Alice")
         assert ev is not None

@@ -40,10 +40,12 @@ class JobResult:
     job_id: str
     battle_id: str | None = None
     winner: str | None = None
+    winner_side: str | None = None
     turns: int = 0
     duration_s: float = 0.0
     events: Sequence[Any] = ()
     raw_log: str = ""
+    rationales: Sequence[dict[str, object]] = ()
 
 
 class Orchestrator:

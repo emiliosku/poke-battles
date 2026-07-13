@@ -8,11 +8,12 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session, sessionmaker
 
 import pokeapi.settings as settings_module
 from pokeapi.auth import create_session
 from pokeapi.db import session_scope
-from pokeapi.db.models import Battle, Simulation, Team, User
+from pokeapi.db.models import Battle, Replay, ReplayShare, Simulation, Team, User
 from pokeapi.main import create_app
 from pokeapi.services.team_validation import TeamValidationResult
 
@@ -409,6 +410,324 @@ class TestBattles:
         body = r.json()
         assert body["status"] == "queued"
         assert body["format"] == "gen9randombattle"
+
+
+class TestReplays:
+    @staticmethod
+    def _add_battle(
+        factory: sessionmaker[Session], *, battle_id: str, owner_id: str = "github:u1"
+    ) -> None:
+        with session_scope(factory) as session:
+            session.add(
+                Battle(
+                    id=battle_id,
+                    format="gen9ou",
+                    status="finished",
+                    owner_id=owner_id,
+                    player1_username="alice",
+                    player2_username="bob",
+                    model1="model-a",
+                    model2="model-b",
+                    winner="alice",
+                    team1_snapshot={
+                        "name": "Private team",
+                        "paste": "Garchomp @ Leftovers\n- Earthquake",
+                        "roster": [
+                            {
+                                "species": "Garchomp",
+                                "species_id": "garchomp",
+                                "sprite_id": "garchomp",
+                            }
+                        ],
+                    },
+                )
+            )
+
+    def test_replay_is_private_to_owner(self, authed_client: TestClient) -> None:
+        factory = authed_client.app.state.session_factory
+        self._add_battle(factory, battle_id="private-replay")
+        with session_scope(factory) as session:
+            session.add(Replay(battle_id="private-replay", events=[], raw_log="", summary_json={}))
+            session.add(User(id="github:u2"))
+            other_token = create_session(session, "github:u2")
+
+        authed_client.cookies.set("poke_battles_session", other_token)
+        response = authed_client.get("/replays/private-replay")
+
+        assert response.status_code == 404
+        assert authed_client.get("/battles/private-replay").status_code == 404
+
+    def test_missing_replay_is_unavailable_not_empty(self, authed_client: TestClient) -> None:
+        factory = authed_client.app.state.session_factory
+        self._add_battle(factory, battle_id="unavailable-replay")
+
+        response = authed_client.get("/replays/unavailable-replay")
+
+        assert response.status_code == 200, response.text
+        assert response.json()["availability"] == "unavailable"
+        assert response.json()["events"] is None
+
+    def test_share_scope_projects_private_content(self, authed_client: TestClient) -> None:
+        factory = authed_client.app.state.session_factory
+        self._add_battle(factory, battle_id="shareable-replay")
+        with session_scope(factory) as session:
+            session.add(
+                Replay(
+                    battle_id="shareable-replay",
+                    events=[{"type": "turn"}],
+                    raw_log="|turn|1",
+                    summary_json={
+                        "rationales": [
+                            {
+                                "turn": 3,
+                                "model": "model-a",
+                                "action": "choose_move",
+                                "target": "thunderbolt",
+                                "commentary": "finish the weakened target",
+                            }
+                        ]
+                    },
+                )
+            )
+
+        created = authed_client.post("/replays/shareable-replay/share", json={"scope": "standard"})
+        assert created.status_code == 200, created.text
+        standard_token = created.json()["token"]
+        with session_scope(factory) as session:
+            share = session.get(ReplayShare, "shareable-replay")
+            assert share is not None
+            assert share.token_hash != standard_token
+
+        standard = authed_client.get(f"/replays/share/{standard_token}")
+        assert standard.status_code == 200, standard.text
+        assert standard.json()["raw_log"] is None
+        assert standard.json()["team1_snapshot"]["name"] is None
+        assert standard.json()["team1_snapshot"]["paste"] is None
+        assert standard.json()["team1_snapshot"]["roster"][0]["species_id"] == "garchomp"
+        preview = authed_client.get(f"/replays/share/{standard_token}/preview")
+        assert preview.status_code == 200
+        assert "noindex,nofollow" in preview.text
+        assert "winner" not in preview.text.casefold()
+
+        replacement = authed_client.post(
+            "/replays/shareable-replay/share", json={"scope": "full_study"}
+        )
+        full_token = replacement.json()["token"]
+        assert authed_client.get(f"/replays/share/{standard_token}").status_code == 404
+        full = authed_client.get(f"/replays/share/{full_token}")
+        assert full.status_code == 200
+        assert full.json()["raw_log"] == "|turn|1"
+        assert full.json()["team1_snapshot"]["name"] == "Private team"
+        assert full.json()["team1_snapshot"]["paste"] == "Garchomp @ Leftovers\n- Earthquake"
+
+        revoked = authed_client.delete("/replays/shareable-replay/share")
+        assert revoked.status_code == 204
+        assert authed_client.get(f"/replays/share/{full_token}").status_code == 404
+
+    def test_study_metadata_is_owner_scoped_and_tags_are_normalized(
+        self, authed_client: TestClient
+    ) -> None:
+        factory = authed_client.app.state.session_factory
+        self._add_battle(factory, battle_id="study-replay")
+        with session_scope(factory) as session:
+            session.add(
+                Replay(
+                    battle_id="study-replay",
+                    events=[
+                        {"kind": "faint", "turn": 2, "target": "p2a: Gastly"},
+                        {"kind": "status", "turn": 3, "target": "p1a: Abra", "detail": "par"},
+                        {"kind": "weather_start", "turn": 4, "detail": "RainDance"},
+                        {"kind": "field_end", "turn": 5, "detail": "Trick Room"},
+                        {"kind": "faint", "turn": 6, "target": "p1a: Abra"},
+                    ],
+                    raw_log="",
+                    summary_json={
+                        "rationales": [
+                            {
+                                "turn": 3,
+                                "model": "model-a",
+                                "action": "choose_move",
+                                "target": "thunderbolt",
+                                "commentary": "finish the weakened target",
+                            }
+                        ]
+                    },
+                )
+            )
+
+        favorite = authed_client.post("/replays/study-replay/favorite")
+        assert favorite.status_code == 200, favorite.text
+        assert favorite.json() == {"is_favorite": True, "tags": []}
+        tags = authed_client.put(
+            "/replays/study-replay/tags", json={"tags": [" Focus ", "focus", "Tempo", "  "]}
+        )
+        assert tags.status_code == 200, tags.text
+        assert tags.json() == {"is_favorite": True, "tags": ["focus", "tempo"]}
+
+        replay = authed_client.get("/replays/study-replay")
+        assert replay.status_code == 200, replay.text
+        body = replay.json()
+        assert body["is_favorite"] is True
+        assert body["tags"] == ["focus", "tempo"]
+        assert body["rationales"] == [
+            {
+                "turn": 3,
+                "model": "model-a",
+                "action": "choose_move",
+                "target": "thunderbolt",
+                "commentary": "finish the weakened target",
+            }
+        ]
+        assert body["key_moments"] == [
+            {
+                "turn": 2,
+                "event_index": 0,
+                "kind": "faint",
+                "target": "p2a: Gastly",
+                "detail": None,
+                "is_first_faint": True,
+            },
+            {
+                "turn": 3,
+                "event_index": 1,
+                "kind": "status",
+                "target": "p1a: Abra",
+                "detail": "par",
+                "is_first_faint": False,
+            },
+            {
+                "turn": 4,
+                "event_index": 2,
+                "kind": "weather_start",
+                "target": None,
+                "detail": "RainDance",
+                "is_first_faint": False,
+            },
+            {
+                "turn": 5,
+                "event_index": 3,
+                "kind": "field_end",
+                "target": None,
+                "detail": "Trick Room",
+                "is_first_faint": False,
+            },
+            {
+                "turn": 6,
+                "event_index": 4,
+                "kind": "faint",
+                "target": "p1a: Abra",
+                "detail": None,
+                "is_first_faint": False,
+            },
+        ]
+
+        with session_scope(factory) as session:
+            session.add(User(id="github:u2"))
+            other_token = create_session(session, "github:u2")
+        authed_client.cookies.set("poke_battles_session", other_token)
+        assert (
+            authed_client.put("/replays/study-replay/tags", json={"tags": ["other"]}).status_code
+            == 404
+        )
+
+    def test_annotations_are_owner_only_and_projected_by_share_scope(
+        self, authed_client: TestClient
+    ) -> None:
+        factory = authed_client.app.state.session_factory
+        self._add_battle(factory, battle_id="annotated-replay")
+        with session_scope(factory) as session:
+            session.add(
+                Replay(
+                    battle_id="annotated-replay",
+                    events=[
+                        {"kind": "turn_start", "turn": 1},
+                        {"kind": "faint", "turn": 2, "target": "p2a: Gastly"},
+                    ],
+                    raw_log="|turn|1",
+                    summary_json={},
+                )
+            )
+
+        private = authed_client.post(
+            "/replays/annotated-replay/annotations",
+            json={
+                "turn": 1,
+                "event_index": 0,
+                "title": " Opening ",
+                "note": " private note ",
+                "is_highlight": True,
+            },
+        )
+        assert private.status_code == 200, private.text
+        private_id = private.json()["id"]
+        assert private.json()["title"] == "Opening"
+        assert private.json()["note"] == "private note"
+
+        shared = authed_client.post(
+            "/replays/annotated-replay/annotations",
+            json={
+                "turn": 2,
+                "event_index": 1,
+                "title": "Faint",
+                "note": "shared note",
+                "is_highlight": True,
+                "is_shared": True,
+            },
+        )
+        assert shared.status_code == 200, shared.text
+        shared_id = shared.json()["id"]
+        updated = authed_client.patch(
+            f"/replays/annotated-replay/annotations/{shared_id}", json={"title": "First faint"}
+        )
+        assert updated.status_code == 200, updated.text
+        assert updated.json()["title"] == "First faint"
+        assert len(authed_client.get("/replays/annotated-replay/annotations").json()) == 2
+
+        favorite = authed_client.post("/replays/annotated-replay/favorite")
+        assert favorite.status_code == 200
+        assert (
+            authed_client.put(
+                "/replays/annotated-replay/tags", json={"tags": ["private"]}
+            ).status_code
+            == 200
+        )
+        standard_token = authed_client.post(
+            "/replays/annotated-replay/share", json={"scope": "standard"}
+        ).json()["token"]
+        standard = authed_client.get(f"/replays/share/{standard_token}")
+        assert standard.status_code == 200, standard.text
+        assert [annotation["id"] for annotation in standard.json()["annotations"]] == [shared_id]
+        assert "is_favorite" not in standard.json()
+        assert "tags" not in standard.json()
+
+        full_token = authed_client.post(
+            "/replays/annotated-replay/share", json={"scope": "full_study"}
+        ).json()["token"]
+        full = authed_client.get(f"/replays/share/{full_token}")
+        assert full.status_code == 200, full.text
+        assert [annotation["id"] for annotation in full.json()["annotations"]] == [
+            private_id,
+            shared_id,
+        ]
+        assert "is_favorite" not in full.json()
+        assert "tags" not in full.json()
+        deleted = authed_client.delete(f"/replays/annotated-replay/annotations/{shared_id}")
+        assert deleted.status_code == 204
+        assert [
+            annotation["id"]
+            for annotation in authed_client.get("/replays/annotated-replay/annotations").json()
+        ] == [private_id]
+
+        with session_scope(factory) as session:
+            session.add(User(id="github:u2"))
+            other_token = create_session(session, "github:u2")
+        authed_client.cookies.set("poke_battles_session", other_token)
+        assert (
+            authed_client.patch(
+                f"/replays/annotated-replay/annotations/{private_id}", json={"title": "Nope"}
+            ).status_code
+            == 404
+        )
 
 
 class TestPracticeBattles:

@@ -11,11 +11,32 @@ from pokeapi.services import (
     _winner_from_events,
     build_chooser,
 )
+from pokeapi.services.choosers import _record_rationale
 from pokeengine.events import Event, EventKind
 from pokellm.config import Tier
 
 
 class TestBuildChooser:
+    def test_rationale_recorder_keeps_only_real_commentary(self) -> None:
+        recorded: list[tuple[str, str | None, str]] = []
+
+        _record_rationale(
+            lambda _battle, action, target, commentary: recorded.append((action, target, commentary)),
+            object(),
+            "choose_move",
+            "earthquake",
+            "  pressure their switch  ",
+        )
+        _record_rationale(
+            lambda _battle, action, target, commentary: recorded.append((action, target, commentary)),
+            object(),
+            "choose_move",
+            "protect",
+            "   ",
+        )
+
+        assert recorded == [("choose_move", "earthquake", "pressure their switch")]
+
     def test_none_config_returns_random(self) -> None:
         chooser = build_chooser("anything", None)
         assert chooser is _random_chooser
@@ -132,6 +153,58 @@ class TestRunSimulation:
         events = [Event(kind=EventKind.BATTLE_END, turn=4, detail="tie")]
 
         assert _winner_from_events(events) is None
+
+    @pytest.mark.asyncio
+    async def test_run_job_preserves_winner_side(self) -> None:
+        service = BattleService()
+
+        async def fake_run_battle(**_: object) -> dict[str, object]:
+            return {"battle_id": "showdown-1", "winner": "alicea1234", "winner_side": "p1"}
+
+        service.run_battle = fake_run_battle  # type: ignore[method-assign]
+
+        from pokeapi.orchestrator import BattleJob
+
+        result = await service.run_job(BattleJob(player1="Alice", player2="Bob"))
+
+        assert result.winner == "alicea1234"
+        assert result.winner_side == "p1"
+
+    @pytest.mark.asyncio
+    async def test_run_job_preserves_rationales(self) -> None:
+        service = BattleService()
+
+        async def fake_run_battle(**_: object) -> dict[str, object]:
+            return {
+                "battle_id": "showdown-1",
+                "winner": "alicea1234",
+                "winner_side": "p1",
+                "rationales": [
+                    {
+                        "turn": 2,
+                        "model": "model-a",
+                        "action": "choose_move",
+                        "target": "earthquake",
+                        "commentary": "pressure their switch",
+                    }
+                ],
+            }
+
+        service.run_battle = fake_run_battle  # type: ignore[method-assign]
+
+        from pokeapi.orchestrator import BattleJob
+
+        result = await service.run_job(BattleJob(player1="Alice", player2="Bob"))
+
+        assert result.rationales == [
+            {
+                "turn": 2,
+                "model": "model-a",
+                "action": "choose_move",
+                "target": "earthquake",
+                "commentary": "pressure their switch",
+            }
+        ]
 
     @pytest.mark.asyncio
     async def test_team_vs_team_counts_null_winner_as_draw(self) -> None:

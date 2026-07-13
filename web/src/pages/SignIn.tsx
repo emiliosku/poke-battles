@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
 
 export default function SignIn() {
   const { user, login, error: authError } = useAuth();
+  const [params] = useSearchParams();
   const [providers, setProviders] = useState<Record<"github" | "google", boolean>>({ github: false, google: false });
   const [error, setError] = useState("");
 
@@ -12,7 +13,9 @@ export default function SignIn() {
     api.auth.providers().then(setProviders).catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, []);
 
-  if (user) return <Navigate to="/" replace />;
+  const requestedReturn = params.get("returnTo");
+  const returnTo = requestedReturn?.startsWith("/") && !requestedReturn.startsWith("//") ? requestedReturn : "/";
+  if (user) return <Navigate to={returnTo} replace />;
 
   return (
     <main className="page">

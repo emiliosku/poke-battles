@@ -21,7 +21,9 @@ from pokeapi.schemas import (
     PracticeTeamPreviewSubmit,
 )
 from pokeapi.state import get_team_validator
+from pokecore import parse_team
 from pokecore.formats import Format, get_format
+from pokecore.teams import sprite_id
 
 logger = logging.getLogger(__name__)
 
@@ -47,11 +49,19 @@ async def create_practice_battle(
     battle_id = f"battle-{uuid.uuid4().hex[:8]}"
     player_team_paste: str | None = None
     ai_team_paste: str | None = None
+    player_team_snapshot: dict[str, object] | None = None
+    ai_team_snapshot: dict[str, object] | None = None
     with session_scope(factory) as session:
         if body.user_team_id is not None:
             player_team_paste = _team_paste(session, body.user_team_id, user.id, "User team")
+            team = session.get(Team, body.user_team_id)
+            if team is not None:
+                player_team_snapshot = _snapshot_team(team)
         if body.ai_team_id is not None:
             ai_team_paste = _team_paste(session, body.ai_team_id, user.id, "AI team")
+            team = session.get(Team, body.ai_team_id)
+            if team is not None:
+                ai_team_snapshot = _snapshot_team(team)
         battle = Battle(
             id=battle_id,
             format=body.format,
@@ -63,6 +73,9 @@ async def create_practice_battle(
             model2=body.ai_model,
             team1_id=body.user_team_id,
             team2_id=body.ai_team_id,
+            team1_snapshot=player_team_snapshot,
+            team2_snapshot=ai_team_snapshot,
+            source="practice",
         )
         session.add(battle)
     validator = get_team_validator(request)
@@ -116,6 +129,7 @@ async def create_practice_battle(
                                 "winner": result.get("winner"),
                                 "practice": True,
                                 "status": result.get("status"),
+                                "rationales": result.get("rationales", []),
                                 **dict(result.get("summary") or {}),
                             },
                         )
@@ -235,3 +249,21 @@ def _to_response(b: Battle) -> BattleResponse:
         started_at=b.started_at,
         finished_at=b.finished_at,
     )
+
+
+def _snapshot_team(team: Team) -> dict[str, object]:
+    roster: list[dict[str, str]] = []
+    try:
+        parsed = parse_team(team.paste)
+    except ValueError:
+        parsed = None
+    if parsed is not None:
+        roster = [
+            {
+                "species": pokemon.species,
+                "species_id": pokemon.species_id,
+                "sprite_id": sprite_id(pokemon.species),
+            }
+            for pokemon in parsed.pokemon
+        ]
+    return {"name": team.name, "roster": roster, "paste": team.paste}

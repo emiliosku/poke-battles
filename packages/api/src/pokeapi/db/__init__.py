@@ -49,6 +49,12 @@ def _ensure_database_columns(engine: Engine) -> None:
 
     if "owner_id" not in battle_columns:
         statements.append("ALTER TABLE battles ADD COLUMN owner_id VARCHAR(64)")
+    if "team1_snapshot" not in battle_columns:
+        statements.append("ALTER TABLE battles ADD COLUMN team1_snapshot JSON")
+    if "team2_snapshot" not in battle_columns:
+        statements.append("ALTER TABLE battles ADD COLUMN team2_snapshot JSON")
+    if "source" not in battle_columns:
+        statements.append("ALTER TABLE battles ADD COLUMN source VARCHAR(32) DEFAULT 'battle'")
     if (
         engine.dialect.name == "postgresql"
         and "status" in battle_columns

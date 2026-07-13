@@ -11,11 +11,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from pokeapi.auth import require_current_user
 from pokeapi.db import session_scope
-from pokeapi.db.models import Battle, Rating, Replay, Team, User
+from pokeapi.db.models import Battle, Rating, Replay, ReplayShare, Team, User
 from pokeapi.orchestrator import BattleJob, JobResult
 from pokeapi.schemas import BattleCreate, BattleResponse
 from pokeapi.state import get_team_validator
+from pokecore import parse_team
 from pokecore.elo import MIN_VOLATILITY, GlickoRating, rate_pair
+from pokecore.teams import sprite_id
 
 logger = logging.getLogger(__name__)
 
@@ -32,17 +34,21 @@ async def create_battle(
     orch = request.app.state.orchestrator
     team1_paste: str | None = None
     team2_paste: str | None = None
+    team1_snapshot: dict[str, object] | None = None
+    team2_snapshot: dict[str, object] | None = None
     with session_scope(factory) as session:
         if body.team1_id is not None:
             team = session.get(Team, body.team1_id)
             if team is None or team.owner_id != user.id:
                 raise HTTPException(status_code=404, detail="Team 1 not found")
             team1_paste = team.paste
+            team1_snapshot = _snapshot_team(team)
         if body.team2_id is not None:
             team = session.get(Team, body.team2_id)
             if team is None or team.owner_id != user.id:
                 raise HTTPException(status_code=404, detail="Team 2 not found")
             team2_paste = team.paste
+            team2_snapshot = _snapshot_team(team)
     validator = get_team_validator(request)
     check1 = await validator.validate(team1_paste, body.format)
     if not check1.ok:
@@ -72,6 +78,8 @@ async def create_battle(
             model2=body.player2.model_name,
             team1_id=body.team1_id,
             team2_id=body.team2_id,
+            team1_snapshot=team1_snapshot,
+            team2_snapshot=team2_snapshot,
         )
         session.add(battle)
 
@@ -101,11 +109,12 @@ async def create_battle(
                         "turns": result.turns,
                         "duration_s": result.duration_s,
                         "winner": result.winner,
+                        "rationales": result.rationales,
                     },
                 )
                 sess.add(replay)
-            if result.winner is not None:
-                _update_ratings(sess, job, result.winner)
+            if result.winner_side in {"p1", "p2"}:
+                _update_ratings(sess, job, result.winner_side)
 
     job.on_start = on_start
     job.on_complete = on_complete
@@ -137,16 +146,36 @@ async def list_battles(
 
 
 @router.get("/{battle_id}", response_model=BattleResponse)
-async def get_battle(battle_id: str, request: Request) -> BattleResponse:
+async def get_battle(
+    battle_id: str,
+    request: Request,
+    user: User = Depends(require_current_user),
+) -> BattleResponse:
     factory = request.app.state.session_factory
     with session_scope(factory) as session:
         battle = session.get(Battle, battle_id)
-        if battle is None:
+        if battle is None or battle.owner_id != user.id:
             raise HTTPException(status_code=404, detail="Battle not found")
         return _to_response(battle)
 
 
-def _update_ratings(sess: Any, job: BattleJob, winner: str) -> None:
+@router.delete("/{battle_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_battle(
+    battle_id: str,
+    request: Request,
+    user: User = Depends(require_current_user),
+) -> None:
+    factory = request.app.state.session_factory
+    with session_scope(factory) as session:
+        battle = session.get(Battle, battle_id)
+        if battle is None or battle.owner_id != user.id:
+            raise HTTPException(status_code=404, detail="Battle not found")
+        session.query(ReplayShare).filter(ReplayShare.battle_id == battle_id).delete()
+        session.query(Replay).filter(Replay.battle_id == battle_id).delete()
+        session.delete(battle)
+
+
+def _update_ratings(sess: Any, job: BattleJob, winner_side: str) -> None:
     fmt = job.format
     for player in (job.player1, job.player2):
         rating = sess.query(Rating).filter_by(subject=player, format=fmt).first()
@@ -174,15 +203,7 @@ def _update_ratings(sess: Any, job: BattleJob, winner: str) -> None:
         rd=r2.rd,
         vol=max(r2.vol, MIN_VOLATILITY),
     )
-    # TODO: latent Glicko-2 misattribution. ``winner`` is the sanitized
-    # Showdown account name (see ``BattleService.run_battle``) while
-    # ``job.player1`` is the raw input username; the comparison almost
-    # never matches in practice, so ``score_a`` is effectively always
-    # 0.0. The fix is to compare against the new ``result.winner_side``
-    # field (or to map ``winner`` back to the input name) — tracked as
-    # a follow-up so this change stays scoped to the simulation tie
-    # bug.
-    score_a = 1.0 if winner == job.player1 else 0.0
+    score_a = 1.0 if winner_side == "p1" else 0.0
     new_g1, new_g2 = rate_pair(g1, g2, score_a)
     r1.rating = new_g1.rating
     r1.rd = new_g1.rd
@@ -215,6 +236,24 @@ def _to_response(b: Battle) -> BattleResponse:
         started_at=started,
         finished_at=finished,
     )
+
+
+def _snapshot_team(team: Team) -> dict[str, object]:
+    roster: list[dict[str, str]] = []
+    try:
+        parsed = parse_team(team.paste)
+    except ValueError:
+        parsed = None
+    if parsed is not None:
+        roster = [
+            {
+                "species": pokemon.species,
+                "species_id": pokemon.species_id,
+                "sprite_id": sprite_id(pokemon.species),
+            }
+            for pokemon in parsed.pokemon
+        ]
+    return {"name": team.name, "roster": roster, "paste": team.paste}
 
 
 _ = asyncio

@@ -32,6 +32,14 @@ class TestEvent:
         assert d["source"] == "p1a: Charizard"
         assert d["raw"] == {"species_id": "charizard"}
 
+    def test_to_dict_new_event_kind(self) -> None:
+        ev = Event(kind=EventKind.END_DYNAMAX, turn=3, target="p1a: Charizard")
+        assert ev.to_dict() == {
+            "kind": "end_dynamax",
+            "turn": 3,
+            "target": "p1a: Charizard",
+        }
+
 
 class TestBattleResult:
     def test_construction(self) -> None:

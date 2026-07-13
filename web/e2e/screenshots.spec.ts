@@ -98,6 +98,7 @@ async function mockApi(page: Page, opts: { signedIn: boolean }) {
     if (path.startsWith("/api/simulations/")) return json(200, SIMULATIONS[0]);
 
     // Replays
+    if (path === "/api/replays") return json(200, { items: [REPLAY], page: 1, page_size: 12, total: 1 });
     if (path === `/api/replays/${DEMO_BATTLE_ID}`) return json(200, REPLAY);
     if (path === `/api/replays/${PRACTICE_ID}`) return json(200, REPLAY);
     if (path === `/api/replays/${PRACTICE_TEAM_PREVIEW_ID}`) return json(200, REPLAY);
@@ -312,17 +313,13 @@ test.describe("poke-battles UI: every screen", () => {
 
   test("replay page (loaded)", async ({ page }) => {
     await mockApi(page, { signedIn: true });
-    await page.goto("/replays");
-    await page.waitForLoadState("networkidle");
     const replaysResp = page.waitForResponse(
       (r) => r.url().includes(`/api/replays/${DEMO_BATTLE_ID}`),
       { timeout: 15_000 },
     );
-    // Type the battle id and load
-    const input = page.locator('input[placeholder="Battle ID"]');
-    await input.fill(DEMO_BATTLE_ID);
-    await page.getByRole("button", { name: /Load replay/i }).click();
+    await page.goto(`/replays/${DEMO_BATTLE_ID}`);
     await replaysResp;
+    await expect(page.getByRole("heading", { name: "Timeline" })).toBeVisible();
     await settleSprites(page, 4000);
     await shot(page, "18-replay-loaded");
   });

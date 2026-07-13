@@ -145,6 +145,8 @@ class TestSimulation:
             indexes = inspect(engine).get_indexes("simulations")
             assert "name" in columns
             assert any(index["name"] == "uq_simulation_owner_name" for index in indexes)
+            assert inspect(engine).has_table("replay_studies")
+            assert inspect(engine).has_table("replay_annotations")
         finally:
             engine.dispose()
 

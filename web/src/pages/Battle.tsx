@@ -63,7 +63,7 @@ export default function Battle() {
     api.replays.get(id)
       .then((replay) => {
         if (cancelled) return;
-        setEvents(replay.events);
+          setEvents(replay.events || []);
         setRawLog(replay.raw_log ? replay.raw_log.split("\n") : []);
       })
       .catch(() => {

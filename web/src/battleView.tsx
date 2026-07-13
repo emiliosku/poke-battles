@@ -50,6 +50,21 @@ const timelineKinds = new Set([
   "field_end",
   "side_condition_start",
   "side_condition_end",
+  "item",
+  "end_item",
+  "ability",
+  "end_ability",
+  "terastallize",
+  "dynamax",
+  "end_dynamax",
+  "super_effective",
+  "resisted",
+  "immune",
+  "transform",
+  "mega",
+  "primal",
+  "burst",
+  "zmove",
   "battle_end",
 ]);
 
@@ -103,6 +118,8 @@ function updateSlotPokemon(slot: SlotState, ref?: PokemonRef, fallback?: string,
 }
 
 function applyEvent(sides: [SideState, SideState], event: BattleEvent): [SideState, SideState] {
+  // TODO(replay-fidelity): model items, abilities, tera, Dynamax, and effectiveness
+  // once the parser persists them as structured events instead of raw protocol only.
   const next: [SideState, SideState] = [
     { ...sides[0], slots: [{ ...sides[0].slots[0] }, { ...sides[0].slots[1] }] },
     { ...sides[1], slots: [{ ...sides[1].slots[0] }, { ...sides[1].slots[1] }] },
@@ -213,6 +230,21 @@ export function formatEvent(event: BattleEvent): string {
   if (event.kind === "field_end") return `Field effect ended: ${event.detail}`;
   if (event.kind === "side_condition_start") return `${event.side || "Side"}: ${event.detail}`;
   if (event.kind === "side_condition_end") return `${event.side || "Side"}: ${event.detail} ended`;
+  if (event.kind === "item") return `${displayPokemon(event.target)} revealed ${event.detail}`;
+  if (event.kind === "end_item") return `${displayPokemon(event.target)} lost ${event.detail || "its item"}`;
+  if (event.kind === "ability") return `${displayPokemon(event.target)} revealed ${event.detail}`;
+  if (event.kind === "end_ability") return `${displayPokemon(event.target)} lost its ability`;
+  if (event.kind === "terastallize") return `${displayPokemon(event.target)} Terastallized into ${event.detail}`;
+  if (event.kind === "dynamax") return `${displayPokemon(event.target)} Dynamaxed`;
+  if (event.kind === "end_dynamax") return `${displayPokemon(event.target)} returned to normal size`;
+  if (event.kind === "super_effective") return `Super effective on ${displayPokemon(event.target)}`;
+  if (event.kind === "resisted") return `${displayPokemon(event.target)} resisted the attack`;
+  if (event.kind === "immune") return `${displayPokemon(event.target)} was immune`;
+  if (event.kind === "transform") return `${displayPokemon(event.target)} transformed into ${event.detail}`;
+  if (event.kind === "mega") return `${displayPokemon(event.target)} Mega Evolved`;
+  if (event.kind === "primal") return `${displayPokemon(event.target)} underwent Primal Reversion`;
+  if (event.kind === "burst") return `${displayPokemon(event.target)} transformed`;
+  if (event.kind === "zmove") return `${displayPokemon(event.target)} unleashed Z-Power`;
   if (event.kind === "battle_end") return event.detail === "tie" ? "Battle ended in a tie" : `Winner: ${event.detail || "unknown"}`;
   return [event.kind, event.side || event.target || event.source, event.detail].filter(Boolean).join(" · ");
 }

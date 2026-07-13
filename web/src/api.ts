@@ -90,10 +90,97 @@ export interface RatingEntry {
 export interface ReplayResponse {
   battle_id: string;
   format: string;
-  events: BattleEvent[];
+  source: string;
+  status: string;
+  winner: string | null;
+  player1: ReplayParticipant;
+  player2: ReplayParticipant;
+  created_at: string;
+  finished_at: string | null;
+  team1_snapshot: ReplayTeamSnapshot | null;
+  team2_snapshot: ReplayTeamSnapshot | null;
+  availability: "available" | "unavailable";
+  legacy: boolean;
+  events: BattleEvent[] | null;
   raw_log: string | null;
   duration_s: number | null;
   turns: number | null;
+  is_favorite: boolean | null;
+  tags: string[] | null;
+  annotations: ReplayAnnotation[];
+  key_moments: ReplayKeyMoment[];
+  rationales: ReplayRationale[];
+}
+
+export interface ReplayAnnotation {
+  id: number;
+  turn: number | null;
+  event_index: number | null;
+  title: string;
+  note: string | null;
+  is_highlight: boolean;
+  is_shared: boolean;
+}
+
+export interface ReplayAnnotationInput {
+  turn?: number | null;
+  event_index?: number | null;
+  title?: string;
+  note?: string | null;
+  is_highlight?: boolean;
+  is_shared?: boolean;
+}
+
+export interface ReplayKeyMoment {
+  turn: number;
+  event_index: number;
+  kind: string;
+  target: string | null;
+  detail: string | null;
+  is_first_faint: boolean;
+}
+
+export interface ReplayRationale {
+  turn: number;
+  model: string;
+  action: string;
+  target: string | null;
+  commentary: string;
+}
+
+export interface ReplayStudyResponse {
+  is_favorite: boolean;
+  tags: string[];
+}
+
+export interface ReplayParticipant {
+  username: string;
+  model: string;
+}
+
+export interface ReplayTeamMember {
+  species: string;
+  species_id: string;
+  sprite_id: string;
+}
+
+export interface ReplayTeamSnapshot {
+  name: string | null;
+  roster: ReplayTeamMember[];
+  paste: string | null;
+}
+
+export interface ReplayListResponse {
+  items: ReplayResponse[];
+  page: number;
+  page_size: number;
+  total: number;
+}
+
+export interface ReplayShareResponse {
+  battle_id: string;
+  token: string;
+  scope: "standard" | "full_study";
 }
 
 export interface BattleEvent {
@@ -295,6 +382,7 @@ export const api = {
       team2_id?: number;
     }) => r<BattleResponse>("/battles", { method: "POST", body: JSON.stringify(data) }),
     get: (id: string) => r<BattleResponse>(`/battles/${id}`),
+    remove: (id: string) => r<void>(`/battles/${id}`, { method: "DELETE" }),
   },
   practice: {
     create: (data: {
@@ -334,5 +422,35 @@ export const api = {
   leaderboard: (format?: string) => r<RatingEntry[]>(`/leaderboard${query({ format })}`),
   replays: {
     get: (id: string) => r<ReplayResponse>(`/replays/${id}`),
+    list: (params: {
+      page?: number;
+      page_size?: number;
+      search?: string;
+      format?: string;
+      outcome?: string;
+      source?: string;
+      participant?: string;
+      sort?: "newest" | "oldest" | "shortest" | "longest";
+    }) => r<ReplayListResponse>(`/replays${query(params)}`),
+    share: (id: string, scope: "standard" | "full_study") =>
+      r<ReplayShareResponse>(`/replays/${id}/share`, { method: "POST", body: JSON.stringify({ scope }) }),
+    revokeShare: (id: string) => r<void>(`/replays/${id}/share`, { method: "DELETE" }),
+    shared: (token: string) => r<ReplayResponse>(`/replays/share/${token}`),
+    toggleFavorite: (id: string) => r<ReplayStudyResponse>(`/replays/${id}/favorite`, { method: "POST" }),
+    setTags: (id: string, tags: string[]) =>
+      r<ReplayStudyResponse>(`/replays/${id}/tags`, { method: "PUT", body: JSON.stringify({ tags }) }),
+    annotations: {
+      list: (id: string) => r<ReplayAnnotation[]>(`/replays/${id}/annotations`),
+      create: (id: string, data: ReplayAnnotationInput) =>
+        r<ReplayAnnotation>(`/replays/${id}/annotations`, { method: "POST", body: JSON.stringify(data) }),
+      update: (id: string, annotationId: number, data: ReplayAnnotationInput) =>
+        r<ReplayAnnotation>(`/replays/${id}/annotations/${annotationId}`, { method: "PATCH", body: JSON.stringify(data) }),
+      remove: (id: string, annotationId: number) =>
+        r<void>(`/replays/${id}/annotations/${annotationId}`, { method: "DELETE" }),
+    },
+    sharePreviewUrl: (token: string) => `${API_BASE}/replays/share/${token}/preview`,
+    remove: (id: string) => r<void>(`/replays/${id}`, { method: "DELETE" }),
+    logUrl: (id: string) => `${API_BASE}/replays/${id}.log`,
+    jsonUrl: (id: string) => `${API_BASE}/replays/${id}.json`,
   },
 };

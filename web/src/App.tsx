@@ -1,10 +1,11 @@
-import { Link, NavLink, Route, Routes } from "react-router-dom";
+import { useEffect } from "react";
+import { Link, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "./auth";
 import Battle from "./pages/Battle";
 import Dashboard from "./pages/Dashboard";
 import Leaderboard from "./pages/Leaderboard";
 import Practice from "./pages/Practice";
-import Replays from "./pages/Replays";
+import Replays, { ReplayDetail, SharedReplay } from "./pages/Replays";
 import SignIn from "./pages/SignIn";
 import Simulations from "./pages/Simulations";
 import SpriteDebug from "./pages/SpriteDebug";
@@ -70,9 +71,20 @@ function NotFound() {
 }
 
 export default function App() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { user, loading } = useAuth();
+  const isSharedReplay = location.pathname.startsWith("/shared/");
+  useEffect(() => {
+    if (loading || !user) return;
+    const returnTo = window.sessionStorage.getItem("poke-battles:return-to");
+    if (!returnTo) return;
+    window.sessionStorage.removeItem("poke-battles:return-to");
+    if (`${location.pathname}${location.search}` !== returnTo) navigate(returnTo, { replace: true });
+  }, [loading, location.pathname, location.search, navigate, user]);
   return (
     <div className="app-shell">
-      <Nav />
+      {!isSharedReplay && <Nav />}
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/signin" element={<SignIn />} />
@@ -84,6 +96,8 @@ export default function App() {
         <Route path="/simulations" element={<Simulations />} />
         <Route path="/leaderboard" element={<Leaderboard />} />
         <Route path="/replays" element={<Replays />} />
+        <Route path="/replays/:battleId" element={<ReplayDetail />} />
+        <Route path="/shared/:token" element={<SharedReplay />} />
         {SHOW_DEBUG_TOOLS && <Route path="/debug/sprites" element={<SpriteDebug />} />}
         <Route path="*" element={<NotFound />} />
       </Routes>

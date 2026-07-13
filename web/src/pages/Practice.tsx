@@ -238,7 +238,7 @@ export default function Practice() {
   useEffect(() => {
     if (!id || !battle || !terminalStatuses.has(battle.status) || events.length > 0) return;
     api.replays.get(id)
-      .then((replay) => setEvents(replay.events))
+      .then((replay) => setEvents(replay.events || []))
       .catch(() => undefined);
   }, [battle, events.length, id]);
 

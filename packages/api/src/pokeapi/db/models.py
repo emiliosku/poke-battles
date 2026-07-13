@@ -81,6 +81,9 @@ class Battle(Base):
     owner_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     team1_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))
     team2_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))
+    team1_snapshot: Mapped[dict[str, object] | None] = mapped_column(JSON)
+    team2_snapshot: Mapped[dict[str, object] | None] = mapped_column(JSON)
+    source: Mapped[str] = mapped_column(String(32), default="battle")
     winner: Mapped[str | None] = mapped_column(String(64))
     turns: Mapped[int | None] = mapped_column(Integer)
     duration_s: Mapped[float | None] = mapped_column(Float)
@@ -132,6 +135,48 @@ class Replay(Base):
     summary_json: Mapped[dict[str, object] | None] = mapped_column(JSON)
 
 
+class ReplayShare(Base):
+    __tablename__ = "replay_shares"
+
+    battle_id: Mapped[str] = mapped_column(ForeignKey("battles.id"), primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    scope: Mapped[str] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(default=_utcnow)
+    revoked_at: Mapped[datetime | None] = mapped_column()
+
+
+class ReplayStudy(Base):
+    __tablename__ = "replay_studies"
+
+    battle_id: Mapped[str] = mapped_column(
+        ForeignKey("battles.id", ondelete="CASCADE"), primary_key=True
+    )
+    owner_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    is_favorite: Mapped[bool] = mapped_column(default=False)
+    tags: Mapped[list[str]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=_utcnow, onupdate=_utcnow)
+
+
+class ReplayAnnotation(Base):
+    __tablename__ = "replay_annotations"
+    __table_args__ = (Index("ix_replay_annotations_owner_battle", "owner_id", "battle_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    battle_id: Mapped[str] = mapped_column(ForeignKey("battles.id", ondelete="CASCADE"), index=True)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    turn: Mapped[int | None] = mapped_column(Integer)
+    event_index: Mapped[int | None] = mapped_column(Integer)
+    title: Mapped[str] = mapped_column(String(120))
+    note: Mapped[str | None] = mapped_column(Text)
+    is_highlight: Mapped[bool] = mapped_column(default=False)
+    is_shared: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime] = mapped_column(default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=_utcnow, onupdate=_utcnow)
+
+
 class Rating(Base):
     __tablename__ = "ratings"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -151,6 +196,9 @@ __all__ = [
     "Battle",
     "Rating",
     "Replay",
+    "ReplayAnnotation",
+    "ReplayShare",
+    "ReplayStudy",
     "Simulation",
     "Team",
     "Tournament",

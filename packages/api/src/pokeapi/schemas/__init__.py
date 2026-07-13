@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class HealthResponse(BaseModel):
@@ -176,14 +176,166 @@ class SimulationResponse(BaseModel):
     progress: SimulationProgress | None = None
 
 
-class ReplayResponse(BaseModel):
+class ReplayTeamMember(BaseModel):
+    species: str
+    species_id: str
+    sprite_id: str
+
+
+class ReplayTeamSnapshot(BaseModel):
+    name: str | None = None
+    roster: list[ReplayTeamMember] = Field(default_factory=list)
+    paste: str | None = None
+
+
+class ReplayParticipant(BaseModel):
+    username: str
+    model: str
+
+
+class ReplayAnnotationCreate(BaseModel):
+    turn: int | None = Field(default=None, ge=0)
+    event_index: int | None = Field(default=None, ge=0)
+    title: str = Field(min_length=1, max_length=120)
+    note: str | None = Field(default=None, max_length=2000)
+    is_highlight: bool = False
+    is_shared: bool = False
+
+    @field_validator("title")
+    @classmethod
+    def normalize_title(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("title must not be blank")
+        return normalized
+
+    @field_validator("note")
+    @classmethod
+    def normalize_note(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
+
+    @model_validator(mode="after")
+    def require_location(self) -> ReplayAnnotationCreate:
+        if self.turn is None and self.event_index is None:
+            raise ValueError("turn or event_index is required")
+        return self
+
+
+class ReplayAnnotationUpdate(BaseModel):
+    turn: int | None = Field(default=None, ge=0)
+    event_index: int | None = Field(default=None, ge=0)
+    title: str | None = Field(default=None, min_length=1, max_length=120)
+    note: str | None = Field(default=None, max_length=2000)
+    is_highlight: bool | None = None
+    is_shared: bool | None = None
+
+    @field_validator("title")
+    @classmethod
+    def normalize_title(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("title must not be blank")
+        return normalized
+
+    @field_validator("note")
+    @classmethod
+    def normalize_note(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
+
+
+class ReplayAnnotationResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
+    id: int
+    turn: int | None
+    event_index: int | None
+    title: str
+    note: str | None
+    is_highlight: bool
+    is_shared: bool
+
+
+class ReplayKeyMoment(BaseModel):
+    turn: int
+    event_index: int
+    kind: str
+    target: str | None = None
+    detail: str | None = None
+    is_first_faint: bool = False
+
+
+class ReplayRationale(BaseModel):
+    turn: int = Field(ge=0)
+    model: str
+    action: str
+    target: str | None = None
+    commentary: str
+
+
+class ReplayStudyResponse(BaseModel):
+    is_favorite: bool
+    tags: list[str] = Field(default_factory=list)
+
+
+class ReplayTagsUpdate(BaseModel):
+    tags: list[str] = Field(default_factory=list)
+
+    @field_validator("tags")
+    @classmethod
+    def normalize_tags(cls, value: list[str]) -> list[str]:
+        normalized = sorted({tag.strip().casefold() for tag in value if tag.strip()})
+        if len(normalized) > 20:
+            raise ValueError("at most 20 tags are allowed")
+        if any(len(tag) > 32 for tag in normalized):
+            raise ValueError("tags must be at most 32 characters")
+        return normalized
+
+
+class ReplayResponse(BaseModel):
     battle_id: str
     format: str
-    events: list[dict[str, Any]]
+    source: str
+    status: str
+    winner: str | None
+    player1: ReplayParticipant
+    player2: ReplayParticipant
+    created_at: datetime
+    finished_at: datetime | None
+    team1_snapshot: ReplayTeamSnapshot | None = None
+    team2_snapshot: ReplayTeamSnapshot | None = None
+    availability: Literal["available", "unavailable"]
+    legacy: bool
+    events: list[dict[str, Any]] | None = None
     raw_log: str | None = None
     duration_s: float | None
     turns: int | None
+    is_favorite: bool | None = None
+    tags: list[str] | None = None
+    annotations: list[ReplayAnnotationResponse] = Field(default_factory=list)
+    key_moments: list[ReplayKeyMoment] = Field(default_factory=list)
+    rationales: list[ReplayRationale] = Field(default_factory=list)
+
+
+class ReplayListResponse(BaseModel):
+    items: list[ReplayResponse]
+    page: int
+    page_size: int
+    total: int
+
+
+class ReplayShareCreate(BaseModel):
+    scope: Literal["standard", "full_study"] = "standard"
+
+
+class ReplayShareResponse(BaseModel):
+    battle_id: str
+    token: str
+    scope: Literal["standard", "full_study"]
 
 
 class LeaderboardEntry(BaseModel):
@@ -270,7 +422,20 @@ __all__ = [
     "PracticeActionSubmit",
     "PracticeBattleCreate",
     "PracticeTeamPreviewSubmit",
+    "ReplayAnnotationCreate",
+    "ReplayAnnotationResponse",
+    "ReplayAnnotationUpdate",
+    "ReplayKeyMoment",
+    "ReplayListResponse",
+    "ReplayParticipant",
+    "ReplayRationale",
     "ReplayResponse",
+    "ReplayShareCreate",
+    "ReplayShareResponse",
+    "ReplayStudyResponse",
+    "ReplayTagsUpdate",
+    "ReplayTeamMember",
+    "ReplayTeamSnapshot",
     "SimulationCreate",
     "SimulationProgress",
     "SimulationResponse",
