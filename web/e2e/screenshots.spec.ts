@@ -302,6 +302,11 @@ test.describe("poke-battles UI: every screen", () => {
     // The sprite fallback chain makes up to 3 cross-origin requests per mon;
     // on a cold browser context the first connection pays a TLS/setup tax.
     await settleSprites(page, 15_000);
+    await expect(page.getByRole("heading", { name: "Timeline" })).toBeVisible();
+    await expect(page.getByText("Incineroar used Fake Out")).toBeVisible();
+    await page.getByRole("button", { name: "Raw", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Raw protocol" })).toBeVisible();
+    await expect(page.getByText("|win|trainer-red")).toBeVisible();
     await shot(page, "17-battle-view-doubles");
   });
 

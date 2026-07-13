@@ -24,6 +24,7 @@ export default function Battle() {
   const [events, setEvents] = useState<BattleEvent[]>([]);
   const [wsState, setWsState] = useState("idle");
   const [creating, setCreating] = useState(false);
+  const [view, setView] = useState<"timeline" | "raw">("timeline");
 
   useEffect(() => {
     Promise.all([api.meta.formats(), api.meta.models(), user ? api.teams.list() : Promise.resolve([])])
@@ -117,24 +118,38 @@ export default function Battle() {
     }
   };
 
+  const timeline = visibleTimelineEvents(events);
+
   if (id) {
     return (
       <main className="page">
         <section className="hero"><span className="eyebrow">Live battle</span><h1>{id}</h1></section>
         {error && <div className="notice error">{error}</div>}
-        <section className="grid two">
+        <section className="battle-layout">
           <Battlefield battle={battle} events={events} />
-          <div className="card stack">
+          <aside className="card stack battle-control" aria-label="Battle control">
             <div className="action-head"><h2>Battle control</h2><span className={`ws-dot ws-${wsState}`} title={`WebSocket: ${wsState}`} /></div>
             {battle && <div className="row"><span className="badge">{battle.status}</span><span>{battle.format}</span><span>{battle.turns ?? 0} turns</span></div>}
             {battle?.winner && <div className="notice">Winner: <strong>{battle.winner}</strong></div>}
-            <div className="notice">Use this built-in viewer for live and saved battles. The upstream Showdown client is not connected to these private battle logs.</div>
             {battle?.status === "finished" && <Link className="button" to="/replays" state={{ battleId: battle.id }}>Open replay</Link>}
-          </div>
+          </aside>
         </section>
-        <section className="grid two" style={{ marginTop: 16 }}>
-          <div className="card"><h2>Battle narration</h2><div className="event-log">{visibleTimelineEvents(events).length === 0 && <p>Waiting for battle events...</p>}{visibleTimelineEvents(events).map((event, i) => <div className="event-line" key={`${event.kind}-${i}`}>{formatEvent(event)}</div>)}</div></div>
-          <div className="card"><h2>Raw protocol</h2><div className="event-log">{rawLog.length === 0 && <p>Waiting for raw protocol...</p>}{rawLog.map((line, i) => <div className="event-line" key={`${line}-${i}`}>{line}</div>)}</div></div>
+        <section className="card stack battle-activity">
+          <div className="row" style={{ justifyContent: "space-between" }}>
+            <h2>{view === "timeline" ? "Timeline" : "Raw protocol"}</h2>
+            <div className="row">
+              <button className={`button ${view === "timeline" ? "" : "secondary"}`} type="button" aria-pressed={view === "timeline"} onClick={() => setView("timeline")}>Timeline</button>
+              <button className={`button ${view === "raw" ? "" : "secondary"}`} type="button" aria-pressed={view === "raw"} onClick={() => setView("raw")}>Raw</button>
+            </div>
+          </div>
+          <div className="event-log">
+            {view === "timeline" && timeline.length === 0 && <p>Waiting for battle events...</p>}
+            {view === "timeline" && timeline.map((event, index) => (
+              <div className="event-line" key={`${event.kind}-${index}`}><span className="badge">T{event.turn}</span> {formatEvent(event)}</div>
+            ))}
+            {view === "raw" && rawLog.length === 0 && <p>Waiting for raw protocol...</p>}
+            {view === "raw" && rawLog.map((line, index) => <div className="event-line" key={`${line}-${index}`}>{line}</div>)}
+          </div>
         </section>
       </main>
     );

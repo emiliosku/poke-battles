@@ -290,6 +290,15 @@ th { color: var(--muted); font-size: 12px; letter-spacing: 0.08em; text-transfor
 .event-log { max-height: 520px; overflow: auto; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; }
 .event-line { padding: 8px 0; border-bottom: 1px solid rgba(148,163,184,0.12); color: #dbeafe; }
 
+.battle-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+  gap: 16px;
+  align-items: start;
+}
+.battle-control { align-self: start; min-width: 0; }
+.battle-activity { margin-top: 16px; }
+
 .action-card { gap: 14px; }
 .action-head { display: flex; align-items: center; justify-content: space-between; }
 .action-head h2 { margin: 0; }
@@ -468,7 +477,7 @@ th { color: var(--muted); font-size: 12px; letter-spacing: 0.08em; text-transfor
 
 @media (max-width: 820px) {
   .topbar { align-items: flex-start; flex-direction: column; }
-  .grid.two, .grid.three { grid-template-columns: 1fr; }
+  .grid.two, .grid.three, .battle-layout { grid-template-columns: 1fr; }
   .battlefield { min-height: auto; padding: 14px; gap: 12px; }
   .combatant { max-width: 100%; }
   .combat-slot { min-width: 0; flex: 1 1 100%; }
