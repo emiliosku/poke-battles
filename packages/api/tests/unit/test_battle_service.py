@@ -21,14 +21,18 @@ class TestBuildChooser:
         recorded: list[tuple[str, str | None, str]] = []
 
         _record_rationale(
-            lambda _battle, action, target, commentary: recorded.append((action, target, commentary)),
+            lambda _battle, action, target, commentary: recorded.append(
+                (action, target, commentary)
+            ),
             object(),
             "choose_move",
             "earthquake",
             "  pressure their switch  ",
         )
         _record_rationale(
-            lambda _battle, action, target, commentary: recorded.append((action, target, commentary)),
+            lambda _battle, action, target, commentary: recorded.append(
+                (action, target, commentary)
+            ),
             object(),
             "choose_move",
             "protect",

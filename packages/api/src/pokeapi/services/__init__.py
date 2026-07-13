@@ -243,7 +243,9 @@ class BattleService:
         ai_username = _showdown_account_name(ai_player, suffix, "b")
         rationales: dict[str, list[dict[str, object]]] = {}
 
-        def _record_rationale(battle: Any, action: str, target: str | None, commentary: str) -> None:
+        def _record_rationale(
+            battle: Any, action: str, target: str | None, commentary: str
+        ) -> None:
             battle_id = str(getattr(battle, "battle_tag", ""))
             rationales.setdefault(battle_id, []).append(
                 {
