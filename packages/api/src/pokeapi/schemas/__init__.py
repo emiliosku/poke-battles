@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class HealthResponse(BaseModel):
@@ -134,12 +134,20 @@ class PracticeActionResponse(BaseModel):
 
 
 class SimulationCreate(BaseModel):
+    name: str | None = Field(default=None, max_length=64)
     mode: str = Field(description="'round_robin', 'team_vs_team', or 'ladder'")
     format: str = "gen9randombattle"
     team_a_id: int | None = None
     team_b_id: int | None = None
     models: list[str] = Field(default_factory=list)
     n_battles: int = Field(default=20, ge=1, le=500)
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
 
 
 class SimulationProgress(BaseModel):
@@ -153,6 +161,7 @@ class SimulationProgress(BaseModel):
 class SimulationResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: str
+    name: str | None
     status: str
     mode: str
     n_battles: int

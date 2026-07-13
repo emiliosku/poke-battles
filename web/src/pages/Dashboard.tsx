@@ -105,7 +105,7 @@ export default function Dashboard() {
           <h2>Recent simulations</h2>
           {simulations.length === 0 && <p>No simulations yet.</p>}
           {simulations.map((sim) => (
-            <div className="notice" key={sim.id}>{sim.id} · {sim.mode} · {sim.status}</div>
+            <div className="notice" key={sim.id}>{sim.name ? `${sim.name} · ${sim.id} · ${sim.mode} · ${sim.status}` : `${sim.id} · ${sim.mode} · ${sim.status}`}</div>
           ))}
         </div>
         <div className="card stack">

@@ -53,6 +53,14 @@ class TestSimulationCreate:
         with pytest.raises(ValidationError):
             SimulationCreate(mode="round_robin", n_battles=1000)
 
+    def test_name_is_trimmed(self) -> None:
+        simulation = SimulationCreate(mode="round_robin", name="  benchmark  ")
+        assert simulation.name == "benchmark"
+
+    def test_blank_name_is_omitted(self) -> None:
+        simulation = SimulationCreate(mode="round_robin", name="   ")
+        assert simulation.name is None
+
 
 class TestHealthResponse:
     def test_construction(self) -> None:

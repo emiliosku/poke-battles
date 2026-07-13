@@ -5,9 +5,11 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import pytest
-from sqlalchemy import Engine, StaticPool, create_engine
+from sqlalchemy import Engine, StaticPool, create_engine, inspect, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from pokeapi.db import init_db
 from pokeapi.db.models import Base, Battle, Rating, Simulation, Team, Tournament, User
 
 
@@ -105,6 +107,46 @@ class TestBattle:
         assert fetched is not None
         assert fetched.winner == "alice"
         assert fetched.turns == 42
+
+
+class TestSimulation:
+    def test_name_is_unique_per_owner(self, session: Session) -> None:
+        session.add(User(id="u1"))
+        session.add_all(
+            [
+                Simulation(
+                    id="sim-1", owner_id="u1", name="benchmark", mode="ladder", n_battles=20
+                ),
+                Simulation(
+                    id="sim-2", owner_id="u1", name="benchmark", mode="ladder", n_battles=20
+                ),
+            ]
+        )
+
+        with pytest.raises(IntegrityError):
+            session.flush()
+
+    def test_init_db_adds_name_to_existing_simulations_table(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        try:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "CREATE TABLE simulations ("
+                        "id VARCHAR(64) PRIMARY KEY, owner_id VARCHAR(64), mode VARCHAR(32), "
+                        "format VARCHAR(64), n_battles INTEGER, status VARCHAR(32)"
+                        ")"
+                    )
+                )
+
+            init_db(engine)
+
+            columns = {column["name"] for column in inspect(engine).get_columns("simulations")}
+            indexes = inspect(engine).get_indexes("simulations")
+            assert "name" in columns
+            assert any(index["name"] == "uq_simulation_owner_name" for index in indexes)
+        finally:
+            engine.dispose()
 
 
 class TestRating:

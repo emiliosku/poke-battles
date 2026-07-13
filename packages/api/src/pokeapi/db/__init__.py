@@ -32,11 +32,10 @@ def make_engine(url: str | None = None) -> Engine:
 
 def init_db(engine: Engine) -> None:
     Base.metadata.create_all(engine)
-    if engine.dialect.name == "postgresql":
-        _ensure_postgres_columns(engine)
+    _ensure_database_columns(engine)
 
 
-def _ensure_postgres_columns(engine: Engine) -> None:
+def _ensure_database_columns(engine: Engine) -> None:
     inspector = inspect(engine)
     table_columns = {
         table: {column["name"]: column for column in inspector.get_columns(table)}
@@ -50,7 +49,11 @@ def _ensure_postgres_columns(engine: Engine) -> None:
 
     if "owner_id" not in battle_columns:
         statements.append("ALTER TABLE battles ADD COLUMN owner_id VARCHAR(64)")
-    if "status" in battle_columns and _varchar_length(battle_columns["status"]) < 32:
+    if (
+        engine.dialect.name == "postgresql"
+        and "status" in battle_columns
+        and _varchar_length(battle_columns["status"]) < 32
+    ):
         statements.append("ALTER TABLE battles ALTER COLUMN status TYPE VARCHAR(32)")
     if "owner_id" not in simulation_columns:
         statements.append("ALTER TABLE simulations ADD COLUMN owner_id VARCHAR(64)")
@@ -58,7 +61,13 @@ def _ensure_postgres_columns(engine: Engine) -> None:
         statements.append(
             "ALTER TABLE simulations ADD COLUMN format VARCHAR(64) DEFAULT 'gen9randombattle'"
         )
-    if "status" in simulation_columns and _varchar_length(simulation_columns["status"]) < 32:
+    if "name" not in simulation_columns:
+        statements.append("ALTER TABLE simulations ADD COLUMN name VARCHAR(64)")
+    if (
+        engine.dialect.name == "postgresql"
+        and "status" in simulation_columns
+        and _varchar_length(simulation_columns["status"]) < 32
+    ):
         statements.append("ALTER TABLE simulations ALTER COLUMN status TYPE VARCHAR(32)")
     if "raw_log" not in replay_columns:
         statements.append("ALTER TABLE replays ADD COLUMN raw_log TEXT")
@@ -67,6 +76,15 @@ def _ensure_postgres_columns(engine: Engine) -> None:
         with engine.begin() as conn:
             for statement in statements:
                 conn.execute(text(statement))
+
+    if "simulations" in table_columns:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_simulation_owner_name "
+                    "ON simulations (owner_id, name)"
+                )
+            )
 
 
 def _varchar_length(column: Mapping[str, object]) -> int:

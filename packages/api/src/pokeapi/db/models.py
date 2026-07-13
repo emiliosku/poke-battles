@@ -18,6 +18,7 @@ from sqlalchemy import (
     JSON,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -101,8 +102,11 @@ class Tournament(Base):
 
 class Simulation(Base):
     __tablename__ = "simulations"
+    __table_args__ = (Index("uq_simulation_owner_name", "owner_id", "name", unique=True),)
+
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     owner_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    name: Mapped[str | None] = mapped_column(String(64))
     mode: Mapped[str] = mapped_column(String(32))
     format: Mapped[str] = mapped_column(String(64), default="gen9randombattle")
     team_a_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))

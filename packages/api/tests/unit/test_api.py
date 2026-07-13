@@ -41,6 +41,11 @@ class _StubTeamValidator:
         self.stop_calls += 1
 
 
+class _StubBattleService:
+    async def run_simulation(self, **_: object) -> dict[str, object]:
+        return {}
+
+
 @pytest.fixture
 def client(tmp_path: Path) -> Iterator[TestClient]:
     db_path = tmp_path / "test.db"
@@ -458,6 +463,77 @@ class TestSimulations:
         )
         assert r.status_code == 202
         assert r.json()["status"] == "queued"
+
+    def test_create_named_simulation_rejects_duplicate_name(
+        self, authed_client: TestClient, stub_validator: _StubTeamValidator
+    ) -> None:
+        authed_client.app.state.bservice = _StubBattleService()
+        payload = {
+            "name": "Benchmark",
+            "mode": "round_robin",
+            "models": ["random", "random"],
+            "n_battles": 4,
+        }
+        first = authed_client.post("/simulations", json=payload)
+        second = authed_client.post("/simulations", json=payload)
+
+        assert first.status_code == 202
+        assert first.json()["name"] == "Benchmark"
+        assert second.status_code == 409
+        assert second.json()["detail"] == "Simulation name already exists"
+
+    @pytest.mark.integration
+    def test_create_named_simulation(self, authed_client: TestClient) -> None:
+        r = authed_client.post(
+            "/simulations",
+            json={
+                "name": "Benchmark",
+                "mode": "round_robin",
+                "models": ["random", "random"],
+                "n_battles": 4,
+            },
+        )
+        assert r.status_code == 202
+        assert r.json()["name"] == "Benchmark"
+
+    def test_lookup_simulation_by_name(self, authed_client: TestClient) -> None:
+        factory = authed_client.app.state.session_factory
+        with session_scope(factory) as session:
+            session.add(
+                Simulation(
+                    id="sim-named",
+                    owner_id="github:u1",
+                    name="Benchmark",
+                    mode="ladder",
+                    n_battles=20,
+                )
+            )
+
+        r = authed_client.get("/simulations/lookup", params={"query": "Benchmark"})
+
+        assert r.status_code == 200
+        assert r.json()["id"] == "sim-named"
+        assert r.json()["name"] == "Benchmark"
+
+    def test_lookup_does_not_return_another_users_simulation(
+        self, authed_client: TestClient
+    ) -> None:
+        factory = authed_client.app.state.session_factory
+        with session_scope(factory) as session:
+            session.add(User(id="github:u2"))
+            session.add(
+                Simulation(
+                    id="sim-private",
+                    owner_id="github:u2",
+                    name="Private benchmark",
+                    mode="ladder",
+                    n_battles=20,
+                )
+            )
+
+        r = authed_client.get("/simulations/lookup", params={"query": "Private benchmark"})
+
+        assert r.status_code == 404
 
     def test_invalid_mode(self, authed_client: TestClient) -> None:
         r = authed_client.post(

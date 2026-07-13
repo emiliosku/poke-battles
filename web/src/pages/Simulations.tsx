@@ -62,6 +62,7 @@ export default function Simulations() {
   const [modelsOptions, setModelsOptions] = useState<ModelOption[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [mode, setMode] = useState("team_vs_team");
+  const [name, setName] = useState("");
   const [format, setFormat] = useState("gen9randombattle");
   const [nBattles, setNBattles] = useState(20);
   const [models, setModels] = useState("random,random");
@@ -115,6 +116,7 @@ export default function Simulations() {
     try {
       const modelList = models.split(",").map((m) => m.trim()).filter(Boolean);
       const result = await api.simulations.create({
+        name: name || undefined,
         mode,
         format,
         n_battles: nBattles,
@@ -134,7 +136,7 @@ export default function Simulations() {
     if (!simId) return;
     setError("");
     try {
-      const result = await api.simulations.get(simId);
+      const result = await api.simulations.lookup(simId);
       setSim(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -147,9 +149,10 @@ export default function Simulations() {
     <main className="page">
       <section className="hero"><span className="eyebrow">Model lab</span><h1>Run battle batches.</h1><p>Compare model matchups with team-vs-team, round-robin, and ladder simulations.</p></section>
       {error && <div className="notice error">{error}</div>}
-      <section className="grid two">
+      <section className="grid two simulations-layout">
         <form className="card stack" onSubmit={create}>
           <h2>Create simulation</h2>
+          <label className="field"><span>Name</span><input value={name} onChange={(e) => setName(e.target.value)} maxLength={64} placeholder="Optional, unique name" /></label>
           <label className="field"><span>Mode</span><select value={mode} onChange={(e) => setMode(e.target.value)}><option value="team_vs_team">Team vs Team</option><option value="round_robin">Round Robin</option><option value="ladder">Ladder</option></select></label>
           <label className="field"><span>Format</span><select value={format} onChange={(e) => setFormat(e.target.value)}>{formats.map((fmt) => <option key={fmt.id} value={fmt.id}>{fmt.name}</option>)}</select></label>
           <label className="field"><span>Number of battles</span><input type="number" value={nBattles} onChange={(e) => setNBattles(Number(e.target.value))} min={1} max={500} /></label>
@@ -158,9 +161,9 @@ export default function Simulations() {
           <div className="grid two"><label className="field"><span>Team A</span><select value={teamAId} onChange={(e) => setTeamAId(e.target.value)}><option value="">Default/random</option>{teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label><label className="field"><span>Team B</span><select value={teamBId} onChange={(e) => setTeamBId(e.target.value)}><option value="">Default/random</option>{teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label></div>
           <button className="button" type="submit">Start simulation</button>
         </form>
-        <div className="card stack"><h2>Lookup</h2><div className="row"><input placeholder="Simulation ID" value={simId} onChange={(e) => setSimId(e.target.value)} /><button className="button secondary" type="button" onClick={() => void lookup()}>Lookup</button></div><h2>Recent</h2>{history.map((item) => <button className="notice" type="button" key={item.id} onClick={() => { setSimId(item.id); setSim(item); }}>{item.id} · {item.mode} · {item.status}</button>)}</div>
+        <div className="card stack"><h2>Lookup</h2><div className="row"><input placeholder="Simulation name or ID" value={simId} onChange={(e) => setSimId(e.target.value)} /><button className="button secondary" type="button" onClick={() => void lookup()}>Lookup</button></div><h2>Recent</h2>{history.map((item) => <button className="notice" type="button" key={item.id} onClick={() => { setSimId(item.id); setSim(item); }}>{item.name ? `${item.name} · ${item.id} · ${item.mode} · ${item.status}` : `${item.id} · ${item.mode} · ${item.status}`}</button>)}</div>
       </section>
-      {sim && <section className="card stack" style={{ marginTop: 16 }}><div className="row"><h2>Simulation {sim.id}</h2><span className="badge">{sim.status}</span></div><p>{sim.mode} · {sim.n_battles} battles</p>{sim.progress && <ProgressPanel sim={sim} />}{sim.wins !== null && <p>Wins {sim.wins} · Losses {sim.losses} · Draws {sim.draws} · Win rate {sim.win_rate !== null ? `${(sim.win_rate * 100).toFixed(1)}%` : "?"}</p>}{sim.results_json && <ResultTable sim={sim} />}</section>}
+      {sim && <section className="card stack" style={{ marginTop: 16 }}><div className="row"><h2>{sim.name || `Simulation ${sim.id}`}</h2><span className="badge">{sim.status}</span></div><p>{sim.name && `${sim.id} · `}{sim.mode} · {sim.n_battles} battles</p>{sim.progress && <ProgressPanel sim={sim} />}{sim.wins !== null && <p>Wins {sim.wins} · Losses {sim.losses} · Draws {sim.draws} · Win rate {sim.win_rate !== null ? `${(sim.win_rate * 100).toFixed(1)}%` : "?"}</p>}{sim.results_json && <ResultTable sim={sim} />}</section>}
     </main>
   );
 }

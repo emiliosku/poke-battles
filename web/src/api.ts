@@ -64,6 +64,7 @@ export interface SimulationProgress {
 
 export interface SimulationResponse {
   id: string;
+  name: string | null;
   status: string;
   mode: string;
   n_battles: number;
@@ -319,6 +320,7 @@ export const api = {
   simulations: {
     list: (limit = 25) => r<SimulationResponse[]>(`/simulations${query({ limit })}`),
     create: (data: {
+      name?: string;
       mode: string;
       format?: string;
       team_a_id?: number;
@@ -327,6 +329,7 @@ export const api = {
       n_battles?: number;
     }) => r<SimulationResponse>("/simulations", { method: "POST", body: JSON.stringify(data) }),
     get: (id: string) => r<SimulationResponse>(`/simulations/${id}`),
+    lookup: (lookupQuery: string) => r<SimulationResponse>(`/simulations/lookup${query({ query: lookupQuery })}`),
   },
   leaderboard: (format?: string) => r<RatingEntry[]>(`/leaderboard${query({ format })}`),
   replays: {

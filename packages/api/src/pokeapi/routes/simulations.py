@@ -8,7 +8,8 @@ import time
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from sqlalchemy.exc import IntegrityError
 
 from pokeapi.auth import require_current_user
 from pokeapi.db import session_scope
@@ -50,6 +51,7 @@ async def create_simulation(
         sim = Simulation(
             id=sim_id,
             owner_id=user.id,
+            name=body.name,
             mode=body.mode,
             format=body.format,
             team_a_id=body.team_a_id,
@@ -59,6 +61,14 @@ async def create_simulation(
             status="queued",
         )
         session.add(sim)
+        try:
+            session.flush()
+        except IntegrityError as exc:
+            if body.name is not None:
+                raise HTTPException(
+                    status_code=409, detail="Simulation name already exists"
+                ) from exc
+            raise
     validator = get_team_validator(request)
     check_a = await validator.validate(team_a_paste, body.format)
     if not check_a.ok:
@@ -149,6 +159,31 @@ async def list_simulations(
         return [_to_response(sim) for sim in simulations]
 
 
+@router.get("/lookup", response_model=SimulationResponse)
+async def lookup_simulation(
+    request: Request,
+    query: str = Query(min_length=1, max_length=64),
+    user: User = Depends(require_current_user),
+) -> SimulationResponse:
+    factory = request.app.state.session_factory
+    value = query.strip()
+    with session_scope(factory) as session:
+        sim = (
+            session.query(Simulation)
+            .filter(Simulation.owner_id == user.id, Simulation.id == value)
+            .one_or_none()
+        )
+        if sim is None:
+            sim = (
+                session.query(Simulation)
+                .filter(Simulation.owner_id == user.id, Simulation.name == value)
+                .one_or_none()
+            )
+        if sim is None:
+            raise HTTPException(status_code=404, detail="Simulation not found")
+        return _to_response(sim)
+
+
 @router.get("/{sim_id}", response_model=SimulationResponse)
 async def get_simulation(sim_id: str, request: Request) -> SimulationResponse:
     factory = request.app.state.session_factory
@@ -172,6 +207,7 @@ def _to_response(s: Simulation, progress: dict[str, int] | None = None) -> Simul
         )
     return SimulationResponse(
         id=s.id,
+        name=s.name,
         status=s.status,
         mode=s.mode,
         n_battles=s.n_battles,
