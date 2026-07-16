@@ -11,12 +11,56 @@ from pokeapi.services import (
     _winner_from_events,
     build_chooser,
 )
-from pokeapi.services.choosers import _record_rationale
+from pokeapi.services.choosers import (
+    _legacy_decision_to_order,
+    _Order,
+    _record_rationale,
+    _resolve_order,
+)
 from pokeengine.events import Event, EventKind
 from pokellm.config import Tier
 
 
 class TestBuildChooser:
+    def test_heuristic_uses_legal_random_order_for_doubles(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import pokeapi.services.choosers as choosers
+
+        class _DoubleBattle:
+            pass
+
+        class _Player:
+            def choose_random_move(self, battle: object) -> str:
+                return "legal-double-order"
+
+        monkeypatch.setattr(choosers, "DoubleBattle", _DoubleBattle)
+
+        assert choosers._heuristic_chooser(_Player(), _DoubleBattle()) == "legal-double-order"  # type: ignore[arg-type]
+
+    def test_legacy_order_keeps_terastallization_flag(self) -> None:
+        decision = type(
+            "Decision",
+            (),
+            {"action": "choose_move", "move_id": "thunderbolt", "terastallize": True},
+        )()
+        order = _legacy_decision_to_order(decision)
+        move = type("Move", (), {"id": "thunderbolt"})()
+
+        class _Player:
+            def create_order(
+                self, selected: object, **kwargs: object
+            ) -> tuple[object, dict[str, object]]:
+                return selected, kwargs
+
+            def choose_random_move(self, battle: object) -> None:
+                return None
+
+        battle = type("Battle", (), {"available_moves": [move], "available_switches": []})()
+
+        assert order == _Order(action="choose_move", move_id="thunderbolt", terastallize=True)
+        assert _resolve_order(_Player(), order, battle) == (move, {"terastallize": True})  # type: ignore[arg-type]
+
     def test_rationale_recorder_keeps_only_real_commentary(self) -> None:
         recorded: list[tuple[str, str | None, str]] = []
 

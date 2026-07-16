@@ -189,22 +189,20 @@ def battle_to_state_dict(battle: AbstractBattle | None) -> dict[str, Any]:
         "player_username": getattr(battle, "player_username", None),
         "opponent_username": getattr(battle, "opponent_username", None),
     }
-    active = getattr(battle, "active_pokemon", None)
-    if active is not None:
-        out["active"] = {
-            "species": getattr(active, "species", None),
-            "hp_fraction": getattr(active, "current_hp_fraction", 1.0),
-            "status": getattr(active, "status", None) and active.status.name,
-            "types": [str(t) for t in (getattr(active, "types", None) or [])],
-        }
-    opponent = getattr(battle, "opponent_active_pokemon", None)
-    if opponent is not None:
-        out["opponent"] = {
-            "species": getattr(opponent, "species", None),
-            "hp_fraction": getattr(opponent, "current_hp_fraction", 1.0),
-            "status": getattr(opponent, "status", None) and opponent.status.name,
-            "types": [str(t) for t in (getattr(opponent, "types", None) or [])],
-        }
+    active = _active_pokemon(battle, "active_pokemon")
+    if active:
+        out["active"] = (
+            _brief_pokemon(active[0])
+            if len(active) == 1
+            else [_brief_pokemon(mon) for mon in active]
+        )
+    opponent = _active_pokemon(battle, "opponent_active_pokemon")
+    if opponent:
+        out["opponent"] = (
+            _brief_pokemon(opponent[0])
+            if len(opponent) == 1
+            else [_brief_pokemon(mon) for mon in opponent]
+        )
     return out
 
 
@@ -223,8 +221,8 @@ def state_from_battle(battle: AbstractBattle) -> BattleState:
 
     This is the only place in the codebase that knows about poke-env types.
     """
-    active = battle.active_pokemon
-    opp_active = battle.opponent_active_pokemon
+    active = _active_pokemon(battle, "active_pokemon")
+    opp_active = _active_pokemon(battle, "opponent_active_pokemon")
     player_team = list(battle.team.values()) if hasattr(battle, "team") else []
     opponent_team = list(battle.opponent_team.values()) if hasattr(battle, "opponent_team") else []
     return BattleState(
@@ -233,8 +231,8 @@ def state_from_battle(battle: AbstractBattle) -> BattleState:
         format=str(getattr(battle, "format", "") or ""),
         player_username=str(getattr(battle, "player_username", "") or ""),
         opponent_username=str(getattr(battle, "opponent_username", "") or ""),
-        player=_side_from_team(player_team, active_mon=active),
-        opponent=_side_from_team(opponent_team, active_mon=opp_active),
+        player=_side_from_team(player_team, active_mons=active),
+        opponent=_side_from_team(opponent_team, active_mons=opp_active),
         field=_field_from_battle(battle),
         can_tera=_read_can_tera(battle),
     )
@@ -248,23 +246,37 @@ def _read_can_tera(battle: AbstractBattle) -> bool:
     return bool(value)
 
 
-def _side_from_team(team: list[Any], *, active_mon: Any) -> tuple[PokemonState, ...]:
+def _active_pokemon(battle: AbstractBattle, attribute: str) -> tuple[Any, ...]:
+    value = getattr(battle, attribute, None)
+    if value is None:
+        return ()
+    if isinstance(value, (list, tuple)):
+        return tuple(mon for mon in value if mon is not None)
+    return (value,)
+
+
+def _brief_pokemon(mon: Any) -> dict[str, Any]:
+    return {
+        "species": getattr(mon, "species", None),
+        "hp_fraction": getattr(mon, "current_hp_fraction", 1.0),
+        "status": getattr(mon, "status", None) and mon.status.name,
+        "types": [str(t) for t in (getattr(mon, "types", None) or [])],
+    }
+
+
+def _side_from_team(team: list[Any], *, active_mons: tuple[Any, ...]) -> tuple[PokemonState, ...]:
     ordered: list[Any] = []
     seen: set[int] = set()
-    if active_mon is not None:
-        for mon in team:
-            if mon is active_mon:
-                ordered.append(mon)
-                seen.add(id(mon))
-                break
+    for active_mon in active_mons:
+        ordered.append(active_mon)
+        seen.add(id(active_mon))
     for mon in team:
         if id(mon) in seen:
             continue
         ordered.append(mon)
         seen.add(id(mon))
-    if active_mon is not None and active_mon not in team:
-        ordered.insert(0, active_mon)
-    return tuple(_pokemon_from(mon, is_active=mon is active_mon) for mon in ordered)
+    active_ids = {id(mon) for mon in active_mons}
+    return tuple(_pokemon_from(mon, is_active=id(mon) in active_ids) for mon in ordered)
 
 
 def _pokemon_from(mon: Any, *, is_active: bool) -> PokemonState:

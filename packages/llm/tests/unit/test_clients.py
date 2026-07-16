@@ -82,11 +82,23 @@ def _scripted_client(
 @pytest.mark.asyncio
 async def test_decide_loop_terminates_on_choose_move() -> None:
     client = _scripted_client(
-        [("", [("c1", "choose_move", {"move_name": "earthquake", "commentary": "final"})])]
+        [
+            (
+                "",
+                [
+                    (
+                        "c1",
+                        "choose_move",
+                        {"move_name": "earthquake", "terastallize": True, "commentary": "final"},
+                    )
+                ],
+            )
+        ]
     )
     decision = await client.decide_loop(system_prompt="sys", user_prompt="user", max_iterations=4)
     assert decision.action == "choose_move"
     assert decision.move_id == "earthquake"
+    assert decision.terastallize is True
 
 
 @pytest.mark.asyncio

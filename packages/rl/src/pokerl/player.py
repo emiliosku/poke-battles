@@ -16,6 +16,7 @@ from queue import Empty, Queue
 from typing import Any
 
 from poke_env.battle.abstract_battle import AbstractBattle
+from poke_env.battle.double_battle import DoubleBattle
 from poke_env.player.battle_order import BattleOrder
 from poke_env.player.player import Player
 from poke_env.ps_client.account_configuration import AccountConfiguration
@@ -80,6 +81,9 @@ class RLPlayer(Player):
 
     async def _choose_move_async(self, battle: AbstractBattle) -> BattleOrder:
         """Async implementation of move choice."""
+        if isinstance(battle, DoubleBattle):
+            logger.warning("RLPlayer does not support doubles; using a legal random order")
+            return self.choose_random_move(battle)
         # Encode observation
         obs = encode_battle(battle)
 

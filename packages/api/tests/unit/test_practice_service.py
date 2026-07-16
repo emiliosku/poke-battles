@@ -14,9 +14,11 @@ from pokeapi.services.practice import (
     PracticeActionController,
     _compact_double_orders,
     _display_species_and_nickname,
+    _fallback_team_order,
     _order_kind,
     _order_label,
     _pokemon_payload,
+    _single_order_signature,
     _team_member_label,
     _team_member_payload,
     decide_points,
@@ -126,7 +128,12 @@ class TestPracticeActionController:
         accepted = await controller.submit_team_preview("battle-3", preview.request_id, ["1", "2"])
         assert accepted is True
         order = await task
-        assert order == "/team 1,2,3,4,5,6"
+        assert order == "/team 1,2"
+
+    def test_team_preview_fallback_respects_bring_limit(self) -> None:
+        battle = SimpleNamespace(team={str(i): object() for i in range(6)}, _max_team_size=4)
+
+        assert _fallback_team_order(battle) == "/team 1,2,3,4"
 
 
 class TestOrderLabeling:
@@ -159,6 +166,14 @@ class TestDoubleOrderCompaction:
         # slot_a dedupes to [move, mon_a]; slot_b is [move, mon_b].
         # Combinations: (move,move), (move,mon_b), (mon_a,move), (mon_a,mon_b) => 4.
         assert len(orders) == 4
+
+    def test_order_signature_preserves_distinct_targets_and_mechanics(self) -> None:
+        target_a = SimpleNamespace(message="/choose move 1 1")
+        target_b = SimpleNamespace(message="/choose move 1 2")
+        tera = SimpleNamespace(message="/choose move 1 tera")
+
+        assert _single_order_signature(target_a) != _single_order_signature(target_b)
+        assert _single_order_signature(target_a) != _single_order_signature(tera)
 
 
 class TestDisplaySpeciesAndNickname:

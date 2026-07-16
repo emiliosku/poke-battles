@@ -113,6 +113,24 @@ class TestStateFromBattle:
         assert state.player[0].is_active is True
         assert state.player[1].species == "Charizard"
 
+    def test_preserves_both_active_slots_for_doubles(self) -> None:
+        active_a = _mon("Pikachu")
+        active_b = _mon("Charizard")
+        opp_a = _mon("Garchomp")
+        opp_b = _mon("Heatran")
+        battle = _battle(active_a, [active_b], opp_a)
+        battle.format = "gen9doublesou"
+        battle.active_pokemon = [active_a, active_b]
+        battle.opponent_active_pokemon = [opp_a, opp_b]
+        battle.opponent_team = {"o:Garchomp": opp_a, "o:Heatran": opp_b}
+
+        state = state_from_battle(battle)
+
+        assert [mon.species for mon in state.player[:2]] == ["Pikachu", "Charizard"]
+        assert all(mon.is_active for mon in state.player[:2])
+        assert [mon.species for mon in state.opponent] == ["Garchomp", "Heatran"]
+        assert all(mon.is_active for mon in state.opponent)
+
     def test_ignores_simple_namespace_objects(self) -> None:
         battle = SimpleNamespace(
             battle_tag="battle-99",

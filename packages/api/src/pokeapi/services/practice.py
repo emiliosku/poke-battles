@@ -419,14 +419,12 @@ def _dedupe_slot_orders(orders: list[Any]) -> list[Any]:
 
 
 def _single_order_signature(order: Any) -> tuple[Any, ...] | None:
-    inner = getattr(order, "order", None)
-    if inner is None:
+    message = getattr(order, "message", None)
+    if not isinstance(message, str):
         return None
-    if _is_pokemon(inner):
-        return ("p", str(getattr(inner, "species", "")))
-    if _is_move(inner):
-        return ("m", str(getattr(inner, "id", "")))
-    return None
+    # Target choices and mechanics (such as Terastallization) are encoded in
+    # the message, while the move id alone is not enough to distinguish them.
+    return (message,)
 
 
 def _order_label(order: BattleOrder) -> str:
@@ -645,8 +643,10 @@ def _species_id(species: str) -> str:
 
 
 def _fallback_team_order(battle: Any) -> str:
-    size = max(1, len(getattr(battle, "team", {}) or {}))
-    return "/team " + "".join(str(i) for i in range(1, size + 1))
+    members = len(getattr(battle, "team", {}) or {})
+    max_team_size = int(getattr(battle, "_max_team_size", 0) or members)
+    size = min(max(1, max_team_size), members)
+    return "/team " + ",".join(str(i) for i in range(1, size + 1))
 
 
 def _order_team_preview(picks: list[int], total: int) -> str | None:
@@ -663,9 +663,6 @@ def _order_team_preview(picks: list[int], total: int) -> str | None:
             return None
         seen.add(pick)
         ordered.append(pick)
-    for i in range(1, total + 1):
-        if i not in seen:
-            ordered.append(i)
     return "/team " + ",".join(str(i) for i in ordered)
 
 

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
+from poke_env.battle.double_battle import DoubleBattle
 
 from pokerl.encoder import encode_battle
 from pokerl.player import NUM_ACTIONS
@@ -105,6 +106,9 @@ def make_rl_chooser(
         battle: AbstractBattle,
     ) -> BattleOrder:
         """Choose a move using the trained RL policy."""
+        if isinstance(battle, DoubleBattle):
+            logger.warning("RL policy does not support doubles; using a legal random order")
+            return player.choose_random_move(battle)
         # Encode battle state
         obs = encode_battle(battle)
 

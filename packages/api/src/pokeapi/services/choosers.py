@@ -7,6 +7,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from poke_env.battle.double_battle import DoubleBattle
+
 from pokeengine.player import AgentPlayer
 
 if TYPE_CHECKING:
@@ -33,6 +35,11 @@ def _heuristic_chooser(player: AgentPlayer, battle: Any) -> Any:
     h_stats = agent_stats.setdefault("heuristic", {"heuristic_calls": 0, "fallback_random": 0})
     h_stats.setdefault("heuristic_calls", 0)
     h_stats.setdefault("fallback_random", 0)
+    if isinstance(battle, DoubleBattle):
+        # The heuristic selects one action and has no target model; poke-env's
+        # random chooser composes a complete legal order for both slots.
+        h_stats["fallback_random"] += 1
+        return player.choose_random_move(battle)
     state = state_from_battle(battle)
     if not state.player or not state.opponent:
         h_stats["fallback_random"] += 1
@@ -89,6 +96,9 @@ def _build_llm_chooser(
 
         async def legacy_chooser(player: AgentPlayer, battle: Any) -> Any:
             stats["llm_calls"] += 1
+            if isinstance(battle, DoubleBattle):
+                stats["fallback_random"] += 1
+                return player.choose_random_move(battle)
             try:
                 state = state_from_battle(battle)
                 decision = await agent.client.decide(
@@ -113,6 +123,9 @@ def _build_llm_chooser(
 
     async def chooser(player: AgentPlayer, battle: Any) -> Any:
         stats["llm_calls"] += 1
+        if isinstance(battle, DoubleBattle):
+            stats["fallback_random"] += 1
+            return player.choose_random_move(battle)
         try:
             state = state_from_battle(battle)
             order = await agent.turn(state)
@@ -129,7 +142,7 @@ def _build_llm_chooser(
                 normalized = order.move_id.lower().replace(" ", "").replace("-", "")
                 for move in battle.available_moves:
                     if move.id == normalized:
-                        return player.create_order(move)
+                        return player.create_order(move, terastallize=order.terastallize)
                 return player.create_order(Move("struggle", gen=9))
             if order.action == "choose_switch" and order.pokemon_name:
                 from poke_env.battle.pokemon import Pokemon
@@ -152,11 +165,16 @@ class _Order:
     action: str
     move_id: str | None = None
     pokemon_name: str | None = None
+    terastallize: bool = False
 
 
 def _legacy_decision_to_order(decision: Any) -> _Order:
     if decision.action == "choose_move" and decision.move_id:
-        return _Order(action="choose_move", move_id=decision.move_id)
+        return _Order(
+            action="choose_move",
+            move_id=decision.move_id,
+            terastallize=bool(getattr(decision, "terastallize", False)),
+        )
     if decision.action == "choose_switch" and decision.pokemon_name:
         return _Order(action="choose_switch", pokemon_name=decision.pokemon_name)
     return _Order(action="__fallback__")
@@ -180,7 +198,7 @@ def _resolve_order(player: AgentPlayer, order: _Order, battle: Any) -> Any:
         normalized = order.move_id.lower().replace(" ", "").replace("-", "")
         for move in battle.available_moves:
             if move.id == normalized:
-                return player.create_order(move)
+                return player.create_order(move, terastallize=order.terastallize)
         return player.create_order(Move("struggle", gen=9))
     if order.action == "choose_switch" and order.pokemon_name:
         from poke_env.battle.pokemon import Pokemon

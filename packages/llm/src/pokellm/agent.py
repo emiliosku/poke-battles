@@ -53,6 +53,7 @@ class Order:
     order: str
     move_id: str | None = None
     pokemon_name: str | None = None
+    terastallize: bool = False
     commentary: str = ""
 
 
@@ -166,6 +167,7 @@ def _default_decision_to_order(decision: LLMDecision) -> Order:
             action="choose_move",
             order=f"/choose move {decision.move_id}",
             move_id=decision.move_id,
+            terastallize=decision.terastallize,
             commentary=decision.commentary,
         )
     if decision.action == "choose_switch" and decision.pokemon_name:

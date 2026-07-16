@@ -122,12 +122,15 @@ def _garchomp_battle() -> BattleState:
 
 class TestLLMAgent:
     async def test_choose_move_order(self, cfg: AgentConfig) -> None:
-        client = FakeLLMClient()
+        client = FakeLLMClient(
+            LLMDecision(action="choose_move", move_id="thunderbolt", terastallize=True)
+        )
         agent = LLMAgent(config=cfg, client=client)  # type: ignore[arg-type]
         order = await agent.turn({"formatted": "my active is Pikachu"})
         assert order.action == "choose_move"
         assert order.order == "/choose move thunderbolt"
         assert order.move_id == "thunderbolt"
+        assert order.terastallize is True
 
     async def test_choose_switch_order(self, cfg: AgentConfig) -> None:
         client = FakeLLMClient(

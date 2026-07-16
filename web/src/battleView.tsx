@@ -254,7 +254,7 @@ export function Battlefield({ battle, events }: { battle?: BattleResponse | null
   const sides = battleSidesFromEvents(visible);
   sides[0].label = battle?.player1_username || "Player 1";
   sides[1].label = battle?.player2_username || "Player 2";
-  const activeSlots = battle?.format.includes("double") || usesDoublesSlots(visible) ? 2 : 1;
+  const activeSlots = battle?.format.includes("double") || battle?.format.includes("vgc") || usesDoublesSlots(visible) ? 2 : 1;
 
   return (
     <div className="battlefield" aria-label="Battlefield viewer">

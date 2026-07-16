@@ -113,6 +113,7 @@ class LLMDecision:
     action: str
     move_id: str | None = None
     pokemon_name: str | None = None
+    terastallize: bool = False
     commentary: str = ""
     raw_response: dict[str, Any] = field(default_factory=dict)
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
@@ -263,6 +264,7 @@ class LLMClient:
             return LLMDecision(
                 action="choose_move",
                 move_id=str(args.get("move_name", "")).strip(),
+                terastallize=args.get("terastallize") is True,
                 commentary=commentary,
                 raw_response={"response": str(response)[:500]} if response is not None else {},
                 tool_calls=[self._normalize_call(c) for c in tool_calls],
