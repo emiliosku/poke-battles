@@ -77,3 +77,62 @@ export it before long polling loops.
   with no `Cache-Control`. After a web deploy, hard-reload (Ctrl/Cmd
   +Shift+R) to see the new bundle. The permanent fix is to add
   `Cache-Control: no-cache` to `index.html` in `web/nginx.conf`.
+
+## RL training (`packages/rl`)
+
+Train a MaskablePPO agent that plays Showdown via `poke-env`. The gym
+env (`packages/rl/src/pokerl/env.py`) drives battles through a background
+thread feeding an observation queue; the agent acts via `RLPlayer`.
+
+```sh
+uv run python -m pokerl.train \
+  --timesteps 200000 --format gen9randombattle --opponent random \
+  --save-dir models/rl/random-v2 --server-host localhost --server-port 8000
+```
+
+CLI flags: `--timesteps --format --opponent {random,heuristic,self-play}
+--lr --batch-size --save-dir --server-host --server-port --net-arch
+--verbose`. Internally it evaluates every 10k steps and saves a
+checkpoint every 50k; the best eval model is written to `<save-dir>/best/best_model.zip`.
+
+Measure a trained model's win rate against random play with
+`~/diag_eval.py` (OCI): `uv run python ~/diag_eval.py --model
+<zip> --episodes 60` (or `--random` for the random baseline).
+
+### Reward signal (critical)
+
+The terminal reward must come from `self._current_battle.won`, NOT a
+hardcoded value. The original `step()` returned a constant `loss_reward`
+on the `_battle_over` path, which silently trained the agent on a broken
+−1.0 signal (it never learned). The fix (`env.py:_terminal_result`)
+reads the true battle outcome and returns `±win_reward` with a `won` key
+in the info dict. If training shows `ep_rew_mean` stuck near the
+loss value or the agent never wins, check this first.
+
+### OCI runbook
+
+- Use the ssh key at `~/src/tests/ssh-key-2026-04-17.key`; server
+  `ubuntu@143.47.38.215`; Showdown runs in Docker on host port 8000.
+- `uv` lives at `~/.local/bin/uv` and the root-owned `.venv` requires
+  `export PATH="$HOME/.local/bin:$PATH"` and `uv run` (a non-interactive
+  shell won't find `uv`).
+- Before launching training/eval, **kill any stale pokerl/diag
+  processes** (see gotcha below) or the new run will fail to log in.
+
+### Notable gotchas (RL)
+
+- **Stale processes hijack the Showdown username.** Every env logs in as
+  `RLAgent-0` / `Opponent-0`. If a previous training or `diag_eval` run
+  didn't exit (SB3 + poke-env often hangs at shutdown instead of
+  terminating), it keeps the name and the next run dies with
+  `|nametaken|RLAgent-0|Someone is already using the name`, which then
+  surfaces as the misleading `Event bound to a different event loop` /
+  `Expected RLAgent-0 to be logged in` errors. This is NOT a code bug —
+  `kill -9` the leftover `pokerl.train` / `diag_eval` PIDs first. A hung
+  training process is harmless once the final checkpoint and
+  `best_model.zip` are written; kill it to free the name.
+- **`[Unavailable choice] Can't switch: The active Pokémon is trapped`**
+  is a normal Showdown message (the agent tried a trapped switch) and is
+  benign — the battle continues.
+- **SB3 eval emits a `Monitor` wrapper UserWarning.** Cosmetic; wrap the
+  eval env with `Monitor` if you want it gone.
