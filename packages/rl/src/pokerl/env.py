@@ -313,11 +313,7 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
                     obs, mask, battle = self._obs_queue.get(timeout=0.5)
                 except Empty:
                     if self._battle_over.is_set():
-                        obs = np.zeros(OBSERVATION_SIZE, dtype=np.float32)
-                        info: dict[str, Any] = {
-                            "action_mask": np.array([True] * NUM_ACTIONS, dtype=np.bool_),
-                        }
-                        return obs, self._reward_config.loss_reward, True, True, info
+                        return self._terminal_result(reason="battle_over")
                     continue
 
                 # Got an observation
@@ -350,10 +346,56 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
                 return obs, reward, terminated, truncated, update_info
 
         except Empty:
-            logger.warning("Battle timed out")
-            obs = np.zeros(OBSERVATION_SIZE, dtype=np.float32)
-            info = {"action_mask": np.array([True] * NUM_ACTIONS, dtype=np.bool_)}
-            return obs, self._reward_config.loss_reward, True, True, info
+            logger.warning("Battle timed out waiting for observation")
+            return self._terminal_result(reason="timeout")
+
+    def _terminal_result(self, *, reason: str) -> tuple[
+        npt.NDArray[np.float32], float, bool, bool, dict[str, Any]
+    ]:
+        """Build the (obs, reward, terminated, truncated, info) tuple for an
+        episode that ended without a fresh observation.
+
+        This happens when the player's last action ended the battle: poke-env
+        does not call ``choose_move`` again, so no terminal observation is ever
+        queued. The true outcome must be read from ``self._current_battle``,
+        which poke-env has already updated to ``finished``/``won``.
+
+        Previously this path hardcoded ``loss_reward`` regardless of the
+        actual result, which taught the agent it always lost and prevented
+        any learning.
+        """
+        assert self._reward_tracker is not None
+        obs = np.zeros(OBSERVATION_SIZE, dtype=np.float32)
+        info: dict[str, Any] = {
+            "action_mask": np.array([True] * NUM_ACTIONS, dtype=np.bool_),
+            "terminal_reason": reason,
+        }
+
+        battle = self._current_battle
+        finished = bool(getattr(battle, "finished", False))
+        if finished:
+            won = bool(getattr(battle, "won", False))
+            info["won"] = won
+            reward = self._reward_config.win_reward if won else self._reward_config.loss_reward
+            # Make sure the reward tracker is advanced to the terminal state so
+            # a subsequent reset starts from a clean slate.
+            self._reward_tracker.step(
+                player_hp_sum=0.0,
+                opponent_hp_sum=0.0,
+                player_fainted=6,
+                opponent_fainted=6,
+                battle_finished=True,
+                won=won,
+            )
+        else:
+            # Battle did not actually finish (genuine hang) — treat as a loss.
+            info["won"] = False
+            reward = self._reward_config.loss_reward
+
+        if self._thread is not None:
+            self._thread.join(timeout=10.0)
+
+        return obs, reward, True, True, info
 
     def close(self) -> None:
         """Clean up resources."""
