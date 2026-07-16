@@ -223,20 +223,6 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         except Exception as e:
             logger.error("Battle error: %s", e)
         finally:
-            # Cancel any pending tasks (websocket readers, ps_client
-            # housekeeping, etc.) and await their cancellation before
-            # closing the loop. Without this they leak as orphans and the
-            # next battle's player/ps_client state is corrupted, which
-            # manifests as ``obs_queue.get`` timing out at 120s on every
-            # subsequent episode.
-            pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
-            for task in pending:
-                task.cancel()
-            if pending:
-                try:
-                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-                except Exception as e:
-                    logger.debug("Pending-task cleanup error (non-fatal): %s", e)
             loop.close()
 
     def reset(
