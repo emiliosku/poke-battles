@@ -98,6 +98,12 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         self._opponent_model: Any | None = None
         self._started = False
         self._battle_over = threading.Event()
+        # Loop-owned coordination primitives. _start_battle is an asyncio.Event
+        # used inside the background loop; the rest are threading primitives so
+        # the env's (sync) thread can wait for / signal the loop safely.
+        self._logged_in = threading.Event()
+        self._start_battle = asyncio.Event()
+        self._shutdown = threading.Event()
 
     @property
     def action_mask(self) -> list[bool]:
@@ -116,16 +122,17 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         )
 
     def _start_background(self) -> None:
-        """Prepare the server config and, if needed, load a frozen opponent
-        model once (so it is not reloaded on every battle).
+        """Spin up the persistent background system: one event loop, one RL
+        player, and one opponent, all logged in once and reused across every
+        battle.
 
-        Players themselves are created per-battle inside
-        ``_run_battle_background``: poke-env binds internal ``asyncio.Event``
-        objects (e.g. ``ps_client.logged_in``) to whatever event loop is
-        current when they are first used. Reusing a player across battles
-        that each run on a fresh loop raises ``Event bound to a different
-        event loop`` and breaks subsequent battles. Building a fresh player
-        for every battle keeps its events bound to the battle's own loop.
+        poke-env binds internal ``asyncio.Event`` objects (e.g.
+        ``ps_client.logged_in``) to the running event loop at first use, so
+        the player and its loop must live for the whole env lifetime.
+        Recreating them per battle — or closing/reopening the loop between
+        battles — raises ``Event bound to a different event loop`` and makes
+        later battles fail to log in. A single long-lived loop that plays
+        many battles via ``battle_against`` is the poke-env-idiomatic fix.
         """
         if self._started:
             return
@@ -133,8 +140,8 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         self._server_config = self._make_server_config()
 
         # For a loaded-policy / self-play opponent, load the model once and
-        # reuse it across battles (cheap to share; only the wrapping Player
-        # is recreated per battle).
+        # reuse it across battles (cheap to share; the wrapping Player is
+        # also reused here).
         kind = self._config.opponent
         if kind not in ("random", "heuristic", "self-play"):
             from pathlib import Path
@@ -155,10 +162,10 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         self._started = True
 
     def _build_players(self) -> tuple[RLPlayer, Player]:
-        """Create fresh RL player + opponent bound to the current loop.
+        """Create the persistent RL player + opponent bound to the loop.
 
-        Must be called from inside the battle thread, after the per-battle
-        event loop has been installed as the running loop.
+        Called once, inside the background loop thread, so the players'
+        internal asyncio events bind to that single long-lived loop.
         """
         assert self._server_config is not None
         server_config = self._server_config
@@ -196,20 +203,19 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         return player, opponent
 
     def _run_battle_background(self) -> None:
-        """Run a single battle in background thread.
+        """Own a single long-lived event loop and play battles on it.
 
-        A fresh event loop and fresh player objects are created for every
-        battle. poke-env binds internal ``asyncio.Event`` objects to the
-        running loop at first use, so reusing a player across loops raises
-        ``Event bound to a different event loop`` and makes later battles
-        fail to log in. Rebuilding per battle avoids that entirely.
+        One RL player and one opponent are created and logged in once. Each
+        call to ``reset()`` sets ``_start_battle`` (a loop-owned asyncio
+        event), prompting one ``battle_against(n_battles=1)``. The loop then
+        idles waiting for the next ``reset()``. The loop is closed only when
+        the env is ``close()``d, so player/event-loop binding is stable across
+        all battles of the env's lifetime.
         """
         loop = asyncio.new_event_loop()
         self._loop = loop
         asyncio.set_event_loop(loop)
 
-        # Build fresh players now that the per-battle loop is running, so
-        # their internal events bind to this loop.
         player, opponent = self._build_players()
         self._player = player
         self._opponent = opponent
@@ -232,20 +238,29 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
                     getattr(p, "username", "?"),
                 )
 
-        async def _battle() -> None:
-            await asyncio.gather(
-                _wait_for_login(player),
-                _wait_for_login(opponent),
-            )
-            await player.battle_against(opponent, n_battles=1)
+        async def _run_forever() -> None:
+            await asyncio.gather(_wait_for_login(player), _wait_for_login(opponent))
+            # Signal that login is complete and the env may proceed.
+            self._logged_in.set()
+            while not self._shutdown.is_set():
+                # Wait for reset() to request a new battle.
+                self._start_battle.clear()
+                await self._start_battle.wait()
+                if self._shutdown.is_set():
+                    break
+                try:
+                    await player.battle_against(opponent, n_battles=1)
+                except Exception as e:
+                    logger.error("Battle error: %s", e)
+                finally:
+                    self._battle_over.set()
 
         try:
-            loop.run_until_complete(_battle())
+            loop.run_until_complete(_run_forever())
         except Exception as e:
-            logger.error("Battle error: %s", e)
+            logger.error("Battle loop error: %s", e)
         finally:
             loop.close()
-            self._battle_over.set()
 
     def reset(
         self,
@@ -259,13 +274,22 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         """
         super().reset(seed=seed)
 
-        # Ensure background system is ready
+        # Ensure the persistent background loop/players are up (once).
         self._start_background()
+        if self._thread is None or not self._thread.is_alive():
+            self._logged_in = threading.Event()
+            self._start_battle = asyncio.Event()
+            self._battle_over.clear()
+            self._thread = threading.Thread(target=self._run_battle_background, daemon=True)
+            self._thread.start()
+            # Wait for the players to log in before requesting a battle.
+            if not self._logged_in.wait(timeout=60.0):
+                logger.warning("Timed out waiting for players to log in")
 
         # Reset reward tracker
         self._reward_tracker = RewardTracker(config=self._reward_config)
 
-        # Start a new battle in background thread
+        # Signal the background loop to start a new battle.
         self._battle_over.clear()
 
         # Drain any stale action from the previous battle (the last
@@ -280,8 +304,8 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
             except Empty:
                 break
 
-        self._thread = threading.Thread(target=self._run_battle_background, daemon=True)
-        self._thread.start()
+        assert self._loop is not None
+        self._loop.call_soon_threadsafe(self._start_battle.set)
 
         # Wait for first observation from the player
         try:
@@ -418,9 +442,20 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         return obs, reward, True, True, info
 
     def close(self) -> None:
-        """Clean up resources."""
+        """Clean up resources.
+
+        Signals the persistent background loop to shut down so its players'
+        websocket connections and event loop are closed cleanly. This must
+        run from the env's own thread (not the background loop thread).
+        """
+        self._shutdown.set()
+        if self._loop is not None:
+            try:
+                self._loop.call_soon_threadsafe(self._start_battle.set)
+            except RuntimeError:
+                pass
         if self._thread is not None and self._thread.is_alive():
-            self._thread.join(timeout=5.0)
+            self._thread.join(timeout=10.0)
         super().close()
 
     def render(self) -> str | None:
