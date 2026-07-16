@@ -90,6 +90,7 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         self._reward_tracker: RewardTracker | None = None
         self._action_mask: list[bool] = [True] * NUM_ACTIONS
         self._battle_count: int = 0
+        self._turn_count: int = 0
         self._thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._player: RLPlayer | None = None
@@ -278,6 +279,7 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
             self._current_battle = battle
         self._action_mask = mask
         self._battle_count += 1
+        self._turn_count = 0
 
         info: dict[str, Any] = {
             "action_mask": np.array(mask, dtype=np.bool_),
@@ -323,9 +325,21 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
                 self._action_mask = mask
 
                 reward = compute_reward(battle, self._reward_tracker)
+                self._turn_count += 1
 
                 terminated = bool(getattr(battle, "finished", False))
                 truncated = False
+
+                # Anti-stall: force-end battles that run past max_turns.
+                # Heuristic/random battles can occasionally drag on (or the
+                # websocket drops mid-battle); without this cap a single
+                # episode can stall the whole training/eval run.
+                if not terminated and self._turn_count >= self._config.max_turns:
+                    logger.warning(
+                        "Battle exceeded max_turns=%d — force-terminating as loss",
+                        self._config.max_turns,
+                    )
+                    return self._terminal_result(reason="max_turns")
 
                 update_info: dict[str, Any] = {
                     "action_mask": np.array(mask, dtype=np.bool_),

@@ -51,6 +51,9 @@ class TrainConfig:
     server_host: str = "localhost"
     server_port: int = 8000
 
+    # Episode limits
+    max_turns: int = 200  # force-end a battle after this many turns (anti-stall)
+
     # Self-play
     self_play_update_freq: int = 50_000  # update opponent model every N steps
     self_play_pool_size: int = 5  # keep N past versions for opponent sampling

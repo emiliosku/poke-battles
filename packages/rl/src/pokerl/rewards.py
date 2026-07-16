@@ -26,7 +26,7 @@ class RewardConfig:
     ko_reward: float = 0.15
     hp_loss_penalty: float = -0.05
     hp_damage_reward: float = 0.05
-    turn_penalty: float = -0.001  # small penalty to encourage faster wins
+    turn_penalty: float = -0.005  # penalty per turn to encourage faster battles
 
 
 @dataclass(slots=True)
