@@ -19,6 +19,7 @@ import gymnasium as gym
 import numpy as np
 import numpy.typing as npt
 from gymnasium import spaces
+from poke_env.battle.double_battle import DoubleBattle
 from poke_env.player.player import Player
 from poke_env.ps_client.account_configuration import AccountConfiguration
 from poke_env.ps_client.server_configuration import ServerConfiguration
@@ -66,6 +67,8 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
     ) -> None:
         super().__init__()
         self._config = config or TrainConfig()
+        if _is_doubles_format(self._config.battle_format):
+            raise ValueError("RL training supports singles formats only")
         self._env_id = env_id
         self._reward_config = reward_config or RewardConfig()
 
@@ -220,6 +223,20 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         except Exception as e:
             logger.error("Battle error: %s", e)
         finally:
+            # Cancel any pending tasks (websocket readers, ps_client
+            # housekeeping, etc.) and await their cancellation before
+            # closing the loop. Without this they leak as orphans and the
+            # next battle's player/ps_client state is corrupted, which
+            # manifests as ``obs_queue.get`` timing out at 120s on every
+            # subsequent episode.
+            pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
+            for task in pending:
+                task.cancel()
+            if pending:
+                try:
+                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+                except Exception as e:
+                    logger.debug("Pending-task cleanup error (non-fatal): %s", e)
             loop.close()
 
     def reset(
@@ -367,6 +384,11 @@ class _LoadedPolicyOpponent(Player):
         self._model = model
 
     def choose_move(self, battle: Any) -> Any:
+        if isinstance(battle, DoubleBattle):
+            logger.warning(
+                "Opponent RL policy does not support doubles; using a legal random order"
+            )
+            return self.choose_random_move(battle)
         obs = encode_battle(battle)
         mask = _battle_action_mask(battle)
         try:
@@ -404,3 +426,12 @@ def _battle_action_mask(battle: Any) -> npt.NDArray[np.bool_]:
         elif available_switches:
             mask[4] = True
     return mask
+
+
+def _is_doubles_format(format_id: str) -> bool:
+    from pokecore.formats import get_format
+
+    try:
+        return get_format(format_id).active_slots > 1
+    except KeyError:
+        return False
