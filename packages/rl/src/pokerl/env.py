@@ -247,12 +247,33 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
 
         # Start a new battle in background thread
         self._battle_over.clear()
+
+        # Drain any stale action from the previous battle (the last
+        # ``step()`` puts an action but returns ``truncated=True`` when
+        # it detects ``_battle_over``, leaving the action in the queue).
+        # If not drained, the new battle's first ``_choose_move_async``
+        # picks up the stale action and processes it as if it were the
+        # current battle's first action.
+        while not self._action_queue.empty():
+            try:
+                self._action_queue.get_nowait()
+            except Empty:
+                break
+
         self._thread = threading.Thread(target=self._run_battle_background, daemon=True)
         self._thread.start()
 
         # Wait for first observation from the player
-        obs, mask, battle = self._obs_queue.get(timeout=120.0)
-        self._current_battle = battle
+        try:
+            obs, mask, battle = self._obs_queue.get(timeout=120.0)
+        except Empty:
+            logger.error("Reset timed out waiting for first observation — battle thread may be stuck")
+            obs = np.zeros(OBSERVATION_SIZE, dtype=np.float32)
+            mask = [True] * NUM_ACTIONS
+            battle = None
+
+        if battle is not None:
+            self._current_battle = battle
         self._action_mask = mask
         self._battle_count += 1
 
