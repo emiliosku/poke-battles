@@ -95,6 +95,7 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         self._player: RLPlayer | None = None
         self._opponent: Player | None = None
         self._started = False
+        self._battle_over = threading.Event()
 
     @property
     def action_mask(self) -> list[bool]:
@@ -224,6 +225,7 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
             logger.error("Battle error: %s", e)
         finally:
             loop.close()
+            self._battle_over.set()
 
     def reset(
         self,
@@ -244,6 +246,7 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         self._reward_tracker = RewardTracker(config=self._reward_config)
 
         # Start a new battle in background thread
+        self._battle_over.clear()
         self._thread = threading.Thread(target=self._run_battle_background, daemon=True)
         self._thread.start()
 
@@ -279,43 +282,53 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         # Send action to the player
         self._action_queue.put(action)
 
-        # Wait for next observation or battle end
+        # Wait for next observation or battle end.
+        # Use a polling loop so we can detect the battle-over event
+        # instead of blocking 120s on the queue for an obs that will
+        # never arrive (the last action finished the battle).
         try:
-            obs, mask, battle = self._obs_queue.get(timeout=120.0)
-            self._current_battle = battle
-            self._action_mask = mask
+            while True:
+                try:
+                    obs, mask, battle = self._obs_queue.get(timeout=0.5)
+                except Empty:
+                    if self._battle_over.is_set():
+                        obs = np.zeros(OBSERVATION_SIZE, dtype=np.float32)
+                        info: dict[str, Any] = {
+                            "action_mask": np.array([True] * NUM_ACTIONS, dtype=np.bool_),
+                        }
+                        return obs, self._reward_config.loss_reward, True, True, info
+                    continue
 
-            # Compute shaped reward
-            reward = compute_reward(battle, self._reward_tracker)
+                # Got an observation
+                self._current_battle = battle
+                self._action_mask = mask
 
-            # Check if battle finished
-            terminated = bool(getattr(battle, "finished", False))
-            truncated = False
+                reward = compute_reward(battle, self._reward_tracker)
 
-            info: dict[str, Any] = {
-                "action_mask": np.array(mask, dtype=np.bool_),
-            }
+                terminated = bool(getattr(battle, "finished", False))
+                truncated = False
 
-            if terminated:
-                won = bool(getattr(battle, "won", False))
-                info["won"] = won
-                # Final reward
-                reward = self._reward_tracker.step(
-                    player_hp_sum=0.0,
-                    opponent_hp_sum=0.0,
-                    player_fainted=6,
-                    opponent_fainted=6,
-                    battle_finished=True,
-                    won=won,
-                )
-                # Wait for battle thread to finish
-                if self._thread is not None:
-                    self._thread.join(timeout=10.0)
+                update_info: dict[str, Any] = {
+                    "action_mask": np.array(mask, dtype=np.bool_),
+                }
 
-            return obs, reward, terminated, truncated, info
+                if terminated:
+                    won = bool(getattr(battle, "won", False))
+                    update_info["won"] = won
+                    reward = self._reward_tracker.step(
+                        player_hp_sum=0.0,
+                        opponent_hp_sum=0.0,
+                        player_fainted=6,
+                        opponent_fainted=6,
+                        battle_finished=True,
+                        won=won,
+                    )
+                    if self._thread is not None:
+                        self._thread.join(timeout=10.0)
+
+                return obs, reward, terminated, truncated, update_info
 
         except Empty:
-            # Battle timed out — treat as loss
             logger.warning("Battle timed out")
             obs = np.zeros(OBSERVATION_SIZE, dtype=np.float32)
             info = {"action_mask": np.array([True] * NUM_ACTIONS, dtype=np.bool_)}
