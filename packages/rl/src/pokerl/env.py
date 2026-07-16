@@ -94,6 +94,8 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         self._loop: asyncio.AbstractEventLoop | None = None
         self._player: RLPlayer | None = None
         self._opponent: Player | None = None
+        self._server_config: ServerConfiguration | None = None
+        self._opponent_model: Any | None = None
         self._started = False
         self._battle_over = threading.Event()
 
@@ -114,14 +116,53 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         )
 
     def _start_background(self) -> None:
-        """Start the background event loop and players."""
+        """Prepare the server config and, if needed, load a frozen opponent
+        model once (so it is not reloaded on every battle).
+
+        Players themselves are created per-battle inside
+        ``_run_battle_background``: poke-env binds internal ``asyncio.Event``
+        objects (e.g. ``ps_client.logged_in``) to whatever event loop is
+        current when they are first used. Reusing a player across battles
+        that each run on a fresh loop raises ``Event bound to a different
+        event loop`` and breaks subsequent battles. Building a fresh player
+        for every battle keeps its events bound to the battle's own loop.
+        """
         if self._started:
             return
 
-        server_config = self._make_server_config()
+        self._server_config = self._make_server_config()
 
-        # Create RL player
-        self._player = RLPlayer(
+        # For a loaded-policy / self-play opponent, load the model once and
+        # reuse it across battles (cheap to share; only the wrapping Player
+        # is recreated per battle).
+        kind = self._config.opponent
+        if kind not in ("random", "heuristic", "self-play"):
+            from pathlib import Path
+
+            from sb3_contrib import MaskablePPO
+
+            model_path = Path(kind)
+            if not model_path.exists():
+                raise FileNotFoundError(
+                    f"Opponent model not found at {model_path}. Use 'random', "
+                    f"'heuristic', 'self-play', or an absolute path to a .zip."
+                )
+            logger.info("Loading opponent policy from %s", model_path)
+            self._opponent_model = MaskablePPO.load(str(model_path))
+        else:
+            self._opponent_model = None
+
+        self._started = True
+
+    def _build_players(self) -> tuple[RLPlayer, Player]:
+        """Create fresh RL player + opponent bound to the current loop.
+
+        Must be called from inside the battle thread, after the per-battle
+        event loop has been installed as the running loop.
+        """
+        assert self._server_config is not None
+        server_config = self._server_config
+        player = RLPlayer(
             self._obs_queue,
             self._action_queue,
             account_configuration=AccountConfiguration(f"RLAgent-{self._env_id}", ""),
@@ -129,71 +170,52 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
             battle_format=self._config.battle_format,
         )
 
-        # Create opponent
-        self._opponent = self._make_opponent(server_config)
-
-        self._started = True
-
-    def _make_opponent(self, server_config: ServerConfiguration) -> Player:
-        """Create the opponent player based on config.
-
-        Supported opponent types (set via ``config.opponent``):
-        - ``"random"`` — uniform-random move chooser.
-        - ``"heuristic"`` — poke-env's built-in ``SimpleHeuristicsPlayer``,
-          a deterministic hand-crafted baseline. This is a much stronger
-          opponent than random and is the recommended first step of the
-          Random → Heuristic → Self-play curriculum.
-        - ``"self-play"`` — same as ``"random"`` for now; the real self-play
-          loop (frozen opponent snapshot from the replay pool) lands in
-          a follow-up.
-        - any other string is treated as a path to a saved MaskablePPO
-          model (``.zip``) that gets loaded as the opponent policy.
-        """
-        acct = AccountConfiguration(f"Opponent-{self._env_id}", "")
         kind = self._config.opponent
-
+        acct = AccountConfiguration(f"Opponent-{self._env_id}", "")
         if kind == "random" or kind == "self-play":
-            return RandomPlayer(
+            opponent: Player = RandomPlayer(
                 account_configuration=acct,
                 server_configuration=server_config,
                 battle_format=self._config.battle_format,
             )
-        if kind == "heuristic":
-            return SimpleHeuristicsPlayer(
+        elif kind == "heuristic":
+            opponent = SimpleHeuristicsPlayer(
                 account_configuration=acct,
                 server_configuration=server_config,
                 battle_format=self._config.battle_format,
             )
-        # Anything else: treat as a path to a trained opponent policy.
-        from pathlib import Path
-
-        from sb3_contrib import MaskablePPO
-
-        model_path = Path(kind)
-        if not model_path.exists():
-            raise FileNotFoundError(
-                f"Opponent model not found at {model_path}. Use 'random', "
-                f"'heuristic', 'self-play', or an absolute path to a .zip."
+        else:
+            assert self._opponent_model is not None
+            opponent = _LoadedPolicyOpponent(
+                account_configuration=acct,
+                server_configuration=server_config,
+                battle_format=self._config.battle_format,
+                model=self._opponent_model,
             )
-        logger.info("Loading opponent policy from %s", model_path)
-        opponent_model = MaskablePPO.load(str(model_path))
-        return _LoadedPolicyOpponent(
-            account_configuration=acct,
-            server_configuration=server_config,
-            battle_format=self._config.battle_format,
-            model=opponent_model,
-        )
+
+        return player, opponent
 
     def _run_battle_background(self) -> None:
-        """Run a single battle in background thread."""
-        assert self._player is not None
-        assert self._opponent is not None
+        """Run a single battle in background thread.
 
+        A fresh event loop and fresh player objects are created for every
+        battle. poke-env binds internal ``asyncio.Event`` objects to the
+        running loop at first use, so reusing a player across loops raises
+        ``Event bound to a different event loop`` and makes later battles
+        fail to log in. Rebuilding per battle avoids that entirely.
+        """
         loop = asyncio.new_event_loop()
         self._loop = loop
+        asyncio.set_event_loop(loop)
 
-        async def _wait_for_login(player: Player, timeout: float = 30.0) -> None:
-            """Block until ``player.ps_client.logged_in`` is set.
+        # Build fresh players now that the per-battle loop is running, so
+        # their internal events bind to this loop.
+        player, opponent = self._build_players()
+        self._player = player
+        self._opponent = opponent
+
+        async def _wait_for_login(p: Player, timeout: float = 30.0) -> None:
+            """Block until ``p.ps_client.logged_in`` is set.
 
             poke-env 0.15's ``Player.challenge``/``accept_challenge`` assert
             ``self.logged_in.is_set()``; without this wait a fast env reset
@@ -201,23 +223,21 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
             of every episode explodes with ``AssertionError``.
             """
             try:
-                logged_in = player.ps_client.logged_in
+                logged_in = p.ps_client.logged_in
                 await asyncio.wait_for(logged_in.wait(), timeout=timeout)
             except TimeoutError:
                 logger.warning(
                     "Timed out after %.1fs waiting for %s to log in",
                     timeout,
-                    getattr(player, "username", "?"),
+                    getattr(p, "username", "?"),
                 )
 
         async def _battle() -> None:
-            assert self._player is not None
-            assert self._opponent is not None
             await asyncio.gather(
-                _wait_for_login(self._player),
-                _wait_for_login(self._opponent),
+                _wait_for_login(player),
+                _wait_for_login(opponent),
             )
-            await self._player.battle_against(self._opponent, n_battles=1)
+            await player.battle_against(opponent, n_battles=1)
 
         try:
             loop.run_until_complete(_battle())

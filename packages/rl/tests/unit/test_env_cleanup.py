@@ -46,6 +46,8 @@ def _build_env() -> PokemonBattleEnv:
     env._current_battle = None
     env._action_mask = [True] * 9
     env._battle_over = threading.Event()
+    env._server_config = MagicMock()
+    env._opponent_model = None
 
     async def noop() -> None:
         return None
@@ -57,8 +59,11 @@ def _build_env() -> PokemonBattleEnv:
     player.ps_client.logged_in.wait = MagicMock(return_value=noop())
     opponent.ps_client.logged_in.wait = MagicMock(return_value=noop())
     player.battle_against = MagicMock(return_value=noop())
-    env._player = player
-    env._opponent = opponent
+
+    # _run_battle_background now builds fresh players per battle via
+    # _build_players(); mock it to return our mock players so the
+    # thread sets env._player / env._opponent as the real code does.
+    env._build_players = MagicMock(return_value=(player, opponent))
     return env
 
 
