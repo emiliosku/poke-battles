@@ -267,7 +267,9 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         try:
             obs, mask, battle = self._obs_queue.get(timeout=120.0)
         except Empty:
-            logger.error("Reset timed out waiting for first observation — battle thread may be stuck")
+            logger.error(
+                "Reset timed out waiting for first observation — battle thread may be stuck"
+            )
             obs = np.zeros(OBSERVATION_SIZE, dtype=np.float32)
             mask = [True] * NUM_ACTIONS
             battle = None
@@ -349,9 +351,9 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
             logger.warning("Battle timed out waiting for observation")
             return self._terminal_result(reason="timeout")
 
-    def _terminal_result(self, *, reason: str) -> tuple[
-        npt.NDArray[np.float32], float, bool, bool, dict[str, Any]
-    ]:
+    def _terminal_result(
+        self, *, reason: str
+    ) -> tuple[npt.NDArray[np.float32], float, bool, bool, dict[str, Any]]:
         """Build the (obs, reward, terminated, truncated, info) tuple for an
         episode that ended without a fresh observation.
 

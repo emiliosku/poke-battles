@@ -74,9 +74,7 @@ def test_battle_over_event_fires_after_thread_exits() -> None:
     thread.start()
     thread.join(timeout=10.0)
     assert not thread.is_alive(), "Battle thread did not exit cleanly"
-    assert env._battle_over.is_set(), (
-        "_battle_over event should be set after battle thread exits"
-    )
+    assert env._battle_over.is_set(), "_battle_over event should be set after battle thread exits"
 
 
 def test_battle_over_event_fires_quickly() -> None:
@@ -108,6 +106,4 @@ def test_battle_over_event_cleared_on_reset() -> None:
     env._battle_over.clear()
     # simulate reset: clear and start new thread
     env._battle_over.clear()
-    assert not env._battle_over.is_set(), (
-        "Event must be cleared before starting a new battle"
-    )
+    assert not env._battle_over.is_set(), "Event must be cleared before starting a new battle"
