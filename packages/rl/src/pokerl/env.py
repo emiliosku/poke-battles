@@ -34,7 +34,7 @@ except ImportError:  # pragma: no cover - older poke_env layout
 
 from pokerl.config import TrainConfig
 from pokerl.encoder import OBSERVATION_SIZE, encode_battle
-from pokerl.player import NUM_ACTIONS, RLPlayer
+from pokerl.player import NUM_ACTIONS, PING_INTERVAL, PING_TIMEOUT, RLPlayer
 from pokerl.rewards import RewardConfig, RewardTracker, compute_reward
 
 logger = logging.getLogger(__name__)
@@ -188,12 +188,16 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
                 account_configuration=acct,
                 server_configuration=server_config,
                 battle_format=self._config.battle_format,
+                ping_interval=PING_INTERVAL,
+                ping_timeout=PING_TIMEOUT,
             )
         if kind == "heuristic":
             return SimpleHeuristicsPlayer(
                 account_configuration=acct,
                 server_configuration=server_config,
                 battle_format=self._config.battle_format,
+                ping_interval=PING_INTERVAL,
+                ping_timeout=PING_TIMEOUT,
             )
         # Anything else: treat as a path to a trained opponent policy.
         from pathlib import Path

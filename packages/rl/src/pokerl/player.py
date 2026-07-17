@@ -36,6 +36,13 @@ NUM_ACTIONS: int = 9
 # returns a random move (prevents an infinite retry hang on a dead env).
 MAX_ACTION_WAITS: int = 5
 
+# Websocket keepalive. The default poke-env ping_timeout=20s is too tight
+# for our sync env bridge: long heuristic battles (and the brief idle
+# windows while the env computes an action) can exceed it, causing the
+# server to drop the connection every ~30s. Bump both well above that.
+PING_INTERVAL: float = 60.0
+PING_TIMEOUT: float = 60.0
+
 
 class RLPlayer(Player):
     """A poke-env player driven by external action selection (Gymnasium env).
@@ -63,6 +70,8 @@ class RLPlayer(Player):
         account_configuration: AccountConfiguration | None = None,
         server_configuration: ServerConfiguration | None = None,
         battle_format: str = "gen9randombattle",
+        ping_interval: float = PING_INTERVAL,
+        ping_timeout: float = PING_TIMEOUT,
         **kwargs: Any,
     ) -> None:
         self._obs_queue = obs_queue
@@ -76,6 +85,8 @@ class RLPlayer(Player):
             account_configuration=acct,
             server_configuration=server_cfg,
             battle_format=battle_format,
+            ping_interval=ping_interval,
+            ping_timeout=ping_timeout,
             **kwargs,
         )
 
