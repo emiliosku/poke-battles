@@ -135,6 +135,30 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
 
         self._started = True
 
+    def _restart_background(self) -> None:
+        """Tear down and recreate the player connections.
+
+        Called when a battle thread has died (e.g. the Showdown websocket
+        dropped mid-battle with ``no close frame received or sent``). The
+        old poke-env players keep the dead connection, so a fresh pair must
+        be created and reconnected before the next battle can start —
+        otherwise ``reset()`` blocks forever waiting for an observation that
+        will never arrive.
+        """
+        logger.warning("Restarting background players (reconnecting to Showdown)")
+        for player in (self._player, self._opponent):
+            if player is not None:
+                try:
+                    # poke-env players expose connection teardown via the
+                    # underlying PSClient (there is no Player.close()).
+                    player.ps_client.stop_listening()  # type: ignore[no-untyped-call]
+                except Exception as e:  # pragma: no cover - best effort
+                    logger.debug("Error stopping player listener on restart: %s", e)
+        self._player = None
+        self._opponent = None
+        self._started = False
+        self._start_background()
+
     def _make_opponent(self, server_config: ServerConfiguration) -> Player:
         """Create the opponent player based on config.
 
@@ -239,6 +263,12 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         Returns the initial observation and info dict.
         """
         super().reset(seed=seed)
+
+        # If the previous battle thread died (e.g. websocket dropped),
+        # the old players hold a dead connection — recreate them so the
+        # next battle can actually connect.
+        if self._thread is not None and not self._thread.is_alive():
+            self._restart_background()
 
         # Ensure background system is ready
         self._start_background()
@@ -417,6 +447,12 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         """Clean up resources."""
         if self._thread is not None and self._thread.is_alive():
             self._thread.join(timeout=5.0)
+        for player in (self._player, self._opponent):
+            if player is not None:
+                try:
+                    player.ps_client.stop_listening()  # type: ignore[no-untyped-call]
+                except Exception:
+                    pass
         super().close()
 
     def render(self) -> str | None:
