@@ -32,6 +32,10 @@ _STOP = object()
 # Max actions: 4 moves + 5 switches
 NUM_ACTIONS: int = 9
 
+# Max consecutive 60s action-timeouts before the player gives up and
+# returns a random move (prevents an infinite retry hang on a dead env).
+MAX_ACTION_WAITS: int = 5
+
 
 class RLPlayer(Player):
     """A poke-env player driven by external action selection (Gymnasium env).
@@ -109,13 +113,26 @@ class RLPlayer(Player):
         return self._action_to_order(int(action), battle)  # type: ignore[arg-type]
 
     def _wait_for_action(self) -> int | object:
-        """Block until an action is available (called in executor)."""
-        while True:
+        """Block until an action is available (called in executor).
+
+        Bounds the total wait so a dead env (e.g. a dropped websocket that
+        left the battle thread unable to resume) cannot hang the player
+        forever and deadlock the training/eval loop. After
+        ``MAX_ACTION_WAITS`` timeouts we give up and return a random move,
+        letting poke-env resolve the battle instead of stalling.
+        """
+        for _ in range(MAX_ACTION_WAITS):
             try:
                 return self._action_queue.get(timeout=60.0)
             except Empty:
                 logger.warning("RLPlayer: Timeout waiting for action, retrying...")
                 continue
+        logger.error(
+            "RLPlayer: gave up waiting for action after %d timeouts; "
+            "returning a random move to avoid a hang",
+            MAX_ACTION_WAITS,
+        )
+        return _STOP
 
     def _compute_action_mask(self, battle: AbstractBattle) -> list[bool]:
         """Compute which of the 9 actions are legal.
