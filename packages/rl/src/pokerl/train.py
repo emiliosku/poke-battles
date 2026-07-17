@@ -111,25 +111,40 @@ def train(config: TrainConfig) -> None:
     eval_env = _make_wrapped_env(env_id=100)
 
     # Build MaskablePPO model
-    model = MaskablePPO(
-        "MlpPolicy",
-        env,
-        learning_rate=config.learning_rate,
-        n_steps=config.n_steps,
-        batch_size=config.batch_size,
-        n_epochs=config.n_epochs,
-        gamma=config.gamma,
-        gae_lambda=config.gae_lambda,
-        clip_range=config.clip_range,
-        ent_coef=config.ent_coef,
-        vf_coef=config.vf_coef,
-        max_grad_norm=config.max_grad_norm,
-        policy_kwargs={
-            "net_arch": config.net_arch,
-        },
-        tensorboard_log=config.tensorboard_log,
-        verbose=1,
-    )
+    if config.resume_path is not None:
+        logger.info("Resuming training from %s", config.resume_path)
+        model = MaskablePPO.load(
+            config.resume_path,
+            env=env,
+            tensorboard_log=config.tensorboard_log,
+            # Allow overriding optimizer hyperparams on fine-tune.
+            learning_rate=config.learning_rate,
+            n_steps=config.n_steps,
+            batch_size=config.batch_size,
+            n_epochs=config.n_epochs,
+            clip_range=config.clip_range,
+            ent_coef=config.ent_coef,
+        )
+    else:
+        model = MaskablePPO(
+            "MlpPolicy",
+            env,
+            learning_rate=config.learning_rate,
+            n_steps=config.n_steps,
+            batch_size=config.batch_size,
+            n_epochs=config.n_epochs,
+            gamma=config.gamma,
+            gae_lambda=config.gae_lambda,
+            clip_range=config.clip_range,
+            ent_coef=config.ent_coef,
+            vf_coef=config.vf_coef,
+            max_grad_norm=config.max_grad_norm,
+            policy_kwargs={
+                "net_arch": config.net_arch,
+            },
+            tensorboard_log=config.tensorboard_log,
+            verbose=1,
+        )
 
     logger.info("Model architecture: %s", config.net_arch)
     logger.info("Total parameters: %d", sum(p.numel() for p in model.policy.parameters()))
@@ -235,6 +250,12 @@ def main() -> None:
         action="store_true",
         help="Enable debug logging",
     )
+    parser.add_argument(
+        "--resume",
+        type=str,
+        default=None,
+        help="Path to a saved .zip to continue training from (fine-tuning).",
+    )
     args = parser.parse_args()
 
     # Configure logging
@@ -259,6 +280,7 @@ def main() -> None:
         server_host=args.server_host,
         server_port=args.server_port,
         net_arch=[int(x) for x in args.net_arch.split(",")],
+        resume_path=args.resume,
     )
 
     # Ensure server is reachable
