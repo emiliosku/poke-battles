@@ -98,6 +98,7 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         self._started = False
         self._battle_over = threading.Event()
         self._conn_id = 0  # increments on each (re)connect for unique usernames
+        self._connection_dead = False  # set when the battle ws actually dropped
 
     @property
     def action_mask(self) -> list[bool]:
@@ -258,6 +259,11 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
             loop.run_until_complete(_battle())
         except Exception as e:
             logger.error("Battle error: %s", e)
+            # A battle error (e.g. websocket "no close frame") means the
+            # connection died — the players must be recreated before the
+            # next battle. A *normal* battle end raises nothing, so we do
+            # NOT set this and the next reset reuses the live players.
+            self._connection_dead = True
         finally:
             loop.close()
             self._battle_over.set()
@@ -274,11 +280,14 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         """
         super().reset(seed=seed)
 
-        # If the previous battle thread died (e.g. websocket dropped),
-        # the old players hold a dead connection — recreate them so the
-        # next battle can actually connect.
-        if self._thread is not None and not self._thread.is_alive():
+        # Only recreate the players if the previous battle's websocket
+        # actually dropped (Battle error path). A *normal* battle end also
+        # leaves the thread dead, but the players stay logged in and can be
+        # reused for the next battle — recreating them on every battle would
+        # churn connections and collapse throughput.
+        if self._connection_dead:
             self._restart_background()
+            self._connection_dead = False
 
         # Ensure background system is ready
         self._start_background()
