@@ -97,6 +97,7 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         self._opponent: Player | None = None
         self._started = False
         self._battle_over = threading.Event()
+        self._conn_id = 0  # increments on each (re)connect for unique usernames
 
     @property
     def action_mask(self) -> list[bool]:
@@ -120,18 +121,22 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
             return
 
         server_config = self._make_server_config()
+        # Unique username per connection so a recreated player never
+        # collides with a stale one still registered server-side after a
+        # websocket drop (which would otherwise fail with |nametaken|).
+        conn_tag = f"{self._env_id}-{self._conn_id}"
 
         # Create RL player
         self._player = RLPlayer(
             self._obs_queue,
             self._action_queue,
-            account_configuration=AccountConfiguration(f"RLAgent-{self._env_id}", ""),
+            account_configuration=AccountConfiguration(f"RLAgent-{conn_tag}", ""),
             server_configuration=server_config,
             battle_format=self._config.battle_format,
         )
 
         # Create opponent
-        self._opponent = self._make_opponent(server_config)
+        self._opponent = self._make_opponent(server_config, conn_tag=conn_tag)
 
         self._started = True
 
@@ -157,9 +162,10 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         self._player = None
         self._opponent = None
         self._started = False
+        self._conn_id += 1
         self._start_background()
 
-    def _make_opponent(self, server_config: ServerConfiguration) -> Player:
+    def _make_opponent(self, server_config: ServerConfiguration, *, conn_tag: str) -> Player:
         """Create the opponent player based on config.
 
         Supported opponent types (set via ``config.opponent``):
@@ -174,7 +180,7 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         - any other string is treated as a path to a saved MaskablePPO
           model (``.zip``) that gets loaded as the opponent policy.
         """
-        acct = AccountConfiguration(f"Opponent-{self._env_id}", "")
+        acct = AccountConfiguration(f"Opponent-{conn_tag}", "")
         kind = self._config.opponent
 
         if kind == "random" or kind == "self-play":
