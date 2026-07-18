@@ -111,6 +111,11 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         self._watchdog_stop = threading.Event()
         self._watchdog = threading.Thread(target=self._watchdog_loop, daemon=True)
         self._watchdog.start()
+        # Self-play: when set, the opponent is reloaded from this .zip at the
+        # start of every battle so it always faces the latest frozen snapshot.
+        self._opponent_model_path: str | None = getattr(
+            self._config, "self_play_snapshot_path", None
+        )
 
     @property
     def action_mask(self) -> list[bool]:
@@ -211,6 +216,34 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
                 self._connection_dead = True
                 self._battle_over.set()
 
+    def set_opponent_model(self, path: str) -> None:
+        """Point the opponent at a new frozen snapshot (self-play).
+
+        The opponent is reloaded from ``path`` at the start of the next
+        battle, so calling this between training steps seamlessly swaps in a
+        newer version of the policy as the opponent.
+        """
+        self._opponent_model_path = path
+        logger.info("Opponent model set to %s (applied next battle)", path)
+
+    def _rebuild_opponent(self, server_config: ServerConfiguration) -> None:
+        """Recreate the opponent player from the current snapshot path."""
+        if self._opponent_model_path is None:
+            return
+        try:
+            self._kill_opponent_only()
+        except Exception as e:  # pragma: no cover - best effort
+            logger.debug("Error stopping old opponent listener: %s", e)
+        conn_tag = f"{self._env_id}-{self._conn_id}"
+        self._opponent = self._make_opponent(server_config, conn_tag=conn_tag)
+
+    def _kill_opponent_only(self) -> None:
+        if self._opponent is not None:
+            try:
+                self._opponent.ps_client.stop_listening()  # type: ignore[no-untyped-call]
+            except Exception as e:  # pragma: no cover - best effort
+                logger.debug("Error stopping opponent listener: %s", e)
+
     def _make_opponent(self, server_config: ServerConfiguration, *, conn_tag: str) -> Player:
         """Create the opponent player based on config.
 
@@ -227,7 +260,10 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
           model (``.zip``) that gets loaded as the opponent policy.
         """
         acct = AccountConfiguration(f"Opponent-{conn_tag}", "")
-        kind = self._config.opponent
+        # Self-play: if a snapshot path is configured, the opponent is
+        # always a frozen policy loaded from that .zip (refreshed by the
+        # training loop via ``set_opponent_model``).
+        kind = self._opponent_model_path or self._config.opponent
 
         if kind == "random" or kind == "self-play":
             return RandomPlayer(
@@ -294,6 +330,13 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         async def _battle() -> None:
             assert self._player is not None
             assert self._opponent is not None
+            # Self-play: reload the frozen opponent snapshot so each battle
+            # faces the latest version the training loop published via
+            # ``set_opponent_model``.
+            if self._opponent_model_path is not None:
+                server_config = self._make_server_config()
+                self._rebuild_opponent(server_config)
+                assert self._opponent is not None
             await asyncio.gather(
                 _wait_for_login(self._player),
                 _wait_for_login(self._opponent),

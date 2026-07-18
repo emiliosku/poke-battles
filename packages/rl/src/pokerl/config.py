@@ -57,6 +57,7 @@ class TrainConfig:
     # Self-play
     self_play_update_freq: int = 50_000  # update opponent model every N steps
     self_play_pool_size: int = 5  # keep N past versions for opponent sampling
+    self_play_snapshot_path: str | None = None  # fixed .zip the opponent reloads each battle
 
     # Fine-tuning
     resume_path: str | None = None  # load a saved .zip and continue training

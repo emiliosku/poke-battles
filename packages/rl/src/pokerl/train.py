@@ -19,7 +19,16 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from pokerl.config import TrainConfig
+
+try:
     from pokerl.env import PokemonBattleEnv
+except ImportError:  # pragma: no cover - runtime dep
+    PokemonBattleEnv = object  # type: ignore[assignment, misc]
+
+try:
+    from stable_baselines3.common.callbacks import BaseCallback
+except ImportError:  # pragma: no cover - training deps optional at type-check
+    BaseCallback = object  # type: ignore[assignment, misc]
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +75,45 @@ def make_env(config: TrainConfig, env_id: int = 0) -> PokemonBattleEnv:
     )
 
 
+class SelfPlayCallback(BaseCallback):
+    """Publish a frozen snapshot of the current policy as the self-play opponent.
+
+    Every ``update_freq`` training steps we save the current model to a fixed
+    ``.zip`` path and tell the environment to reload its opponent from it. The
+    env reloads the snapshot at the start of each battle, so the agent trains
+    against a slightly-older version of itself — providing a learnable
+    win/loss gradient (unlike the heuristic opponent, which is so strong the
+    agent loses ~every battle and gets no gradient).
+    """
+
+    def __init__(self, env: Any, snapshot_path: str, update_freq: int) -> None:
+        super().__init__()
+        self._env = env
+        self._snapshot_path = snapshot_path
+        self._update_freq = update_freq
+        self._last_update = 0
+
+    def _base_env(self) -> PokemonBattleEnv:
+        # Unwrap the VecEnv (DummyVecEnv/SubprocVecEnv) to the base env.
+        vec = self._env
+        while hasattr(vec, "envs"):
+            vec = vec.envs[0]
+        assert isinstance(vec, PokemonBattleEnv)
+        return vec
+
+    def _on_step(self) -> bool:
+        timesteps = self.num_timesteps
+        if timesteps - self._last_update < self._update_freq:
+            return True
+        self._last_update = timesteps
+        self.model.save(self._snapshot_path)
+        try:
+            self._base_env().set_opponent_model(self._snapshot_path)
+        except Exception as e:  # pragma: no cover - best effort
+            logger.warning("Self-play opponent swap failed: %s", e)
+        return True
+
+
 def train(config: TrainConfig) -> None:
     """Run PPO training loop.
 
@@ -86,6 +134,22 @@ def train(config: TrainConfig) -> None:
     log_path = Path(config.log_dir)
     save_path.mkdir(parents=True, exist_ok=True)
     log_path.mkdir(parents=True, exist_ok=True)
+
+    # Self-play: seed the opponent snapshot before the env is built so the
+    # first battle has a concrete (frozen) opponent to load. The training
+    # loop refreshes this snapshot periodically via SelfPlayCallback.
+    if config.self_play_snapshot_path is not None:
+        if config.resume_path is None:
+            raise ValueError(
+                "Self-play requires --resume <zip> to seed the opponent "
+                "snapshot (use the base policy you want to bootstrap from)."
+            )
+        import shutil
+
+        snapshot_path = Path(config.self_play_snapshot_path)
+        snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(config.resume_path, snapshot_path)
+        logger.info("Seeded self-play opponent snapshot from %s", config.resume_path)
 
     logger.info("Starting PPO training")
     logger.info("  Format: %s", config.battle_format)
@@ -166,6 +230,14 @@ def train(config: TrainConfig) -> None:
         ),
     ]
 
+    # Self-play: train against a periodically-refreshed frozen snapshot of the
+    # policy itself. This replaces the eval/checkpoint callbacks' opponent with
+    # a learnable one (the agent loses ~every battle vs heuristic, so there is
+    # no gradient there).
+    if config.self_play_snapshot_path is not None:
+        sp_snapshot = str(Path(config.self_play_snapshot_path))
+        callbacks.append(SelfPlayCallback(env, sp_snapshot, config.self_play_update_freq))
+
     # Train
     model.learn(
         total_timesteps=config.total_timesteps,
@@ -205,8 +277,7 @@ def main() -> None:
         "--opponent",
         type=str,
         default="random",
-        choices=["random", "heuristic", "self-play"],
-        help="Opponent type (default: random)",
+        help="Opponent: 'random', 'heuristic', or a path to a .zip policy.",
     )
     parser.add_argument(
         "--lr",
@@ -256,6 +327,19 @@ def main() -> None:
         default=None,
         help="Path to a saved .zip to continue training from (fine-tuning).",
     )
+    parser.add_argument(
+        "--self-play-snapshot",
+        type=str,
+        default=None,
+        help="Enable self-play: path to a .zip the opponent reloads each battle. "
+        "The training loop refreshes this snapshot periodically.",
+    )
+    parser.add_argument(
+        "--self-play-update-freq",
+        type=int,
+        default=50_000,
+        help="Self-play: refresh the opponent snapshot every N steps.",
+    )
     args = parser.parse_args()
 
     # Configure logging
@@ -281,6 +365,8 @@ def main() -> None:
         server_port=args.server_port,
         net_arch=[int(x) for x in args.net_arch.split(",")],
         resume_path=args.resume,
+        self_play_snapshot_path=args.self_play_snapshot,
+        self_play_update_freq=args.self_play_update_freq,
     )
 
     # Ensure server is reachable
