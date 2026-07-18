@@ -186,3 +186,31 @@ expected payoff):
 **Do NOT** sink more time into "fine-tune a random-winning policy vs
 heuristic" — it plateaus at the base policy's heuristic strength (~8%).
 
+### Self-play (implemented)
+
+Self-play trains the agent against a **periodically-refreshed frozen snapshot
+of its own policy**, giving a learnable win/loss gradient at the agent's own
+skill level (vs heuristic the agent loses ~every battle, so there is no
+gradient). The opponent snapshot is seeded from `--resume` and refreshed every
+`--self-play-update-freq` steps by `SelfPlayCallback`, which swaps the model
+**in place** on the existing `_LoadedPolicyOpponent` (no reconnection — see
+`bd2ae5e`; recreating the player every battle bound its `logged_in` Event to a
+stale asyncio loop and crashed).
+
+```sh
+# bootstrap from the random-winning base; self-play refreshes the opponent
+uv run python -m pokerl.train \
+  --timesteps 300000 --format gen9randombattle --opponent random \
+  --resume models/rl/random-v2/best/best_model.zip \
+  --self-play-snapshot models/rl/random-v3-sp/selfplay_opponent.zip \
+  --self-play-update-freq 50000 \
+  --save-dir models/rl/random-v3-sp --server-host localhost --server-port 8000
+```
+
+Observed: eval reward vs the frozen snapshot hovers around 0 (agent at parity
+with its opponent — healthy co-evolution), and the swap fires correctly at
+each update boundary. Throughput is ~10x lower than vs random/heuristic
+because both sides run a torch `predict()` per turn; a 300k run takes several
+hours. The real payoff is measured by evaluating the final `best_model.zip`
+against `SimpleHeuristicsPlayer` (see `diag_eval.py --opponent heuristic`).
+
