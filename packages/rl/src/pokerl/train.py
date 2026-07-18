@@ -103,9 +103,12 @@ class SelfPlayCallback(BaseCallback):
 
     def _on_step(self) -> bool:
         timesteps = self.num_timesteps
+        if timesteps % 10_000 == 0 and timesteps > 0:
+            logger.info("SelfPlayCallback _on_step: num_timesteps=%d", timesteps)
         if timesteps - self._last_update < self._update_freq:
             return True
         self._last_update = timesteps
+        logger.info("SelfPlayCallback: swapping opponent at %d steps", timesteps)
         self.model.save(self._snapshot_path)
         try:
             self._base_env().set_opponent_model(self._snapshot_path)
