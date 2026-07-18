@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+import time
 from queue import Empty, Queue
 from typing import Any, ClassVar
 
@@ -38,6 +39,12 @@ from pokerl.player import NUM_ACTIONS, PING_INTERVAL, PING_TIMEOUT, RLPlayer
 from pokerl.rewards import RewardConfig, RewardTracker, compute_reward
 
 logger = logging.getLogger(__name__)
+
+# If no observation arrives for this many seconds while a battle is active,
+# the connection is assumed dead (the Showdown websocket dropped without
+# raising — poke-env 0.15 leaves the battle coroutine hanging). The watchdog
+# force-resets the connection so training doesn't wedge forever.
+WATCHDOG_TIMEOUT: float = 90.0
 
 
 class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
@@ -99,6 +106,11 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         self._battle_over = threading.Event()
         self._conn_id = 0  # increments on each (re)connect for unique usernames
         self._connection_dead = False  # set when the battle ws actually dropped
+        self._last_obs_time = time.monotonic()  # heartbeat for the watchdog
+        self._battle_active = False  # True while a battle is in progress
+        self._watchdog_stop = threading.Event()
+        self._watchdog = threading.Thread(target=self._watchdog_loop, daemon=True)
+        self._watchdog.start()
 
     @property
     def action_mask(self) -> list[bool]:
@@ -152,19 +164,52 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
         will never arrive.
         """
         logger.warning("Restarting background players (reconnecting to Showdown)")
-        for player in (self._player, self._opponent):
-            if player is not None:
-                try:
-                    # poke-env players expose connection teardown via the
-                    # underlying PSClient (there is no Player.close()).
-                    player.ps_client.stop_listening()  # type: ignore[no-untyped-call]
-                except Exception as e:  # pragma: no cover - best effort
-                    logger.debug("Error stopping player listener on restart: %s", e)
+        self._kill_players()
         self._player = None
         self._opponent = None
         self._started = False
         self._conn_id += 1
         self._start_background()
+
+    def _kill_players(self) -> None:
+        """Tear down the live player connections (best-effort).
+
+        Used both by the reconnect path and the dead-connection watchdog to
+        unwedge a battle coroutine that is stuck waiting on a dead websocket.
+        """
+        for player in (self._player, self._opponent):
+            if player is not None:
+                try:
+                    player.ps_client.stop_listening()  # type: ignore[no-untyped-call]
+                except Exception as e:  # pragma: no cover - best effort
+                    logger.debug("Error stopping player listener: %s", e)
+
+    def _watchdog_loop(self) -> None:
+        """Background watchdog: detect a hung battle and force a reconnect.
+
+        poke-env 0.15 does not always raise when the Showdown websocket drops
+        mid-battle — the battle coroutine simply stops receiving messages and
+        hangs. The env would then block forever in ``reset()``/``step()``.
+        If no observation arrives within ``WATCHDOG_TIMEOUT`` while a battle is
+        active, we declare the connection dead, unwedge the players, and signal
+        the env to reconnect on the next ``reset()``.
+        """
+        while not self._watchdog_stop.is_set():
+            time.sleep(5.0)
+            if not self._battle_active or self._connection_dead:
+                continue
+            if self._thread is None or not self._thread.is_alive():
+                continue
+            idle = time.monotonic() - self._last_obs_time
+            if idle > WATCHDOG_TIMEOUT:
+                logger.error(
+                    "Watchdog: no observation for %.0fs (battle likely dead) — forcing reconnect",
+                    idle,
+                )
+                self._battle_active = False
+                self._kill_players()
+                self._connection_dead = True
+                self._battle_over.set()
 
     def _make_opponent(self, server_config: ServerConfiguration, *, conn_tag: str) -> Player:
         """Create the opponent player based on config.
@@ -297,6 +342,7 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
 
         # Start a new battle in background thread
         self._battle_over.clear()
+        self._battle_active = True
 
         # Drain any stale action from the previous battle (the last
         # ``step()`` puts an action but returns ``truncated=True`` when
@@ -326,6 +372,7 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
 
         if battle is not None:
             self._current_battle = battle
+        self._last_obs_time = time.monotonic()
         self._action_mask = mask
         self._battle_count += 1
         self._turn_count = 0
@@ -372,6 +419,8 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
                 # Got an observation
                 self._current_battle = battle
                 self._action_mask = mask
+                self._last_obs_time = time.monotonic()
+                self._battle_active = True
 
                 reward = compute_reward(battle, self._reward_tracker)
                 self._turn_count += 1
@@ -388,6 +437,7 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
                         "Battle exceeded max_turns=%d — force-terminating as loss",
                         self._config.max_turns,
                     )
+                    self._battle_active = False
                     return self._terminal_result(reason="max_turns")
 
                 update_info: dict[str, Any] = {
@@ -405,6 +455,7 @@ class PokemonBattleEnv(gym.Env[npt.NDArray[np.float32], int]):
                         battle_finished=True,
                         won=won,
                     )
+                    self._battle_active = False
                     if self._thread is not None:
                         self._thread.join(timeout=10.0)
 
