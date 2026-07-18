@@ -103,8 +103,6 @@ class SelfPlayCallback(BaseCallback):
 
     def _on_step(self) -> bool:
         timesteps = self.num_timesteps
-        if timesteps % 10_000 == 0 and timesteps > 0:
-            logger.info("SelfPlayCallback _on_step: num_timesteps=%d", timesteps)
         if timesteps - self._last_update < self._update_freq:
             return True
         self._last_update = timesteps
