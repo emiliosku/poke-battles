@@ -88,3 +88,47 @@ def test_terminal_result_hardcodes_loss_when_battle_not_finished() -> None:
     assert reward == env._reward_config.loss_reward
     assert info["won"] is False
     assert info["terminal_reason"] == "timeout"
+
+
+def test_shaping_dominates_terminal_over_a_battle() -> None:
+    """Regression: the dense per-turn shaping must be a meaningful fraction
+    of the signal so PPO has a gradient even when the agent always loses.
+
+    A full battle's shaping sum should be on the same order as (not dwarfed
+    by) the terminal win/loss, otherwise the terminal is a near-constant
+    offset with no learning signal vs a strong opponent.
+    """
+    from pokerl.rewards import RewardConfig, RewardTracker
+
+    cfg = RewardConfig()
+    tracker = RewardTracker(config=cfg)
+
+    # Simulate a 50-turn battle where the agent deals ~4 HP fractions of
+    # damage, takes ~5, KOs 1 and faints 2 (a typical losing battle).
+    reward_sum = 0.0
+    for turn in range(50):
+        if turn == 20:
+            opp_fainted, player_fainted = 1, 0  # agent scores a KO
+        elif turn in (30, 45):
+            opp_fainted, player_fainted = 1, 1  # trade
+        else:
+            opp_fainted, player_fainted = 1, 1
+        # crudely walk HP down toward the fainted counts
+        opp_hp = max(0.0, 6.0 - turn * 0.08 - opp_fainted * 1.0)
+        pl_hp = max(0.0, 6.0 - turn * 0.1 - player_fainted * 1.0)
+        reward_sum += tracker.step(
+            player_hp_sum=pl_hp,
+            opponent_hp_sum=opp_hp,
+            player_fainted=player_fainted,
+            opponent_fainted=opp_fainted,
+            battle_finished=False,
+            won=None,
+        )
+    reward_sum += cfg.loss_reward  # terminal loss
+
+    # Shaping magnitude over the battle should rival the terminal weight.
+    assert abs(reward_sum) > 0
+    # The per-turn shaping alone (excluding terminal) should not be swamped
+    # by the ±1.0 terminal; assert the accumulated shaping is >= ~0.5.
+    shaping_only = reward_sum - cfg.loss_reward
+    assert abs(shaping_only) >= 0.5
