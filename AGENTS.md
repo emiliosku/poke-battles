@@ -136,3 +136,53 @@ loss value or the agent never wins, check this first.
   benign — the battle continues.
 - **SB3 eval emits a `Monitor` wrapper UserWarning.** Cosmetic; wrap the
   eval env with `Monitor` if you want it gone.
+- **Dead-connection watchdog (`env.py:_watchdog_loop`).** poke-env 0.15
+  does NOT always raise when the Showdown websocket drops mid-battle — the
+  battle coroutine just hangs and the env blocks forever in `reset()`/
+  `step()`. The watchdog (`WATCHDOG_TIMEOUT=90s`) detects >90s without an
+  observation while a battle is active, force-kills the players via
+  `ps_client.stop_listening()`, and sets `_connection_dead` so the next
+  `reset()` recreates them. If a training run freezes with no evals and a
+  tail of `ConnectionClosedError` but no progress, it's this — the watchdog
+  should now auto-recover; if it doesn't, the 90s threshold may need lowering.
+
+### Curriculum wall: `SimpleHeuristicsPlayer` is too hard
+
+The Random → Heuristic → Self-play curriculum **breaks at the heuristic
+step**. Empirically (all runs, `gen9randombattle`, `RLPlayer`/MaskablePPO):
+
+| Run | Trained vs | Eval vs heuristic | win_rate |
+|---|---|---|---|
+| `random-v2` | random | heuristic | 8.3% |
+| `random-v3` | heuristic (from scratch) | heuristic | 3.3% |
+| `random-v3-ft` | random→heuristic (old reward) | heuristic | 1.7% |
+| `random-v3-ft2` | random→heuristic (dense reward `b124922`) | heuristic | 6.7% |
+
+**Root cause:** vs a strong opponent the agent loses ~every battle, so the
+terminal ±win_reward is a near-constant offset with no gradient. The dense
+reward reshaping (`b124922`: HP ±0.2, KO/faint ±0.5, turn −0.01) DID give a
+real training signal — `ep_rew_mean` climbed from −1.07 to −0.83 during
+training — but it did NOT translate to winning at evaluation (still ~3-7%
+vs heuristic, i.e. at the random-winning baseline's level). The agent learns
+to *lose less* but cannot cross the tactical gap to actually beating
+`SimpleHeuristicsPlayer`.
+
+**What to try next if beating heuristic is the goal** (in rough order of
+expected payoff):
+1. **Self-play** — train vs frozen past checkpoints (`_LoadedPolicyOpponent`
+   already supports a `.zip` opponent path). Opponents at the agent's own
+   level provide a learnable win/loss gradient; this is the originally-planned
+   next step and the most likely to break the wall.
+2. **Denser / different shaping** — e.g. reward *net HP differential* change
+   per turn even more strongly, or add a small shaping bonus specifically for
+   good type matchups / switching into favorable matchups.
+3. **Bigger net / longer horizon** — bump `--net-arch`, train 1M+ steps, or
+   fix teams (`gen9ou`) so the agent learns real team-building rather than
+   random-team variance.
+4. **Accept the random-only baseline** — `random-v2` beats random 83% and is
+   a perfectly good "randombot-beater"; heuristic is simply a different, much
+   harder tier.
+
+**Do NOT** sink more time into "fine-tune a random-winning policy vs
+heuristic" — it plateaus at the base policy's heuristic strength (~8%).
+
